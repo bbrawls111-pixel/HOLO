@@ -1,16 +1,18 @@
-import { Download, Loader2, Pause, Play, RotateCw, Sun } from 'lucide-react';
+import { Camera, Download, Loader2, Pause, Play, RotateCw, Sun } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type * as THREEns from 'three';
 import { fileContentPath } from '../api';
-import { toast } from '../store';
+import { askLibrary, toast } from '../store';
+import { uploadOne } from '../upload';
 import type { HoloFile } from '../types';
 import { cx } from '../util';
 import styles from './ModelViewer.module.css';
 
-type Fmt = 'glb' | 'gltf' | 'obj' | 'stl' | 'usdz';
+type Fmt = 'glb' | 'gltf' | 'fbx' | 'obj' | 'stl' | 'usdz';
 const FORMATS: { id: Fmt; label: string }[] = [
   { id: 'glb', label: 'GLB' },
   { id: 'gltf', label: 'glTF' },
+  { id: 'fbx', label: 'FBX' },
   { id: 'obj', label: 'OBJ+MTL' },
   { id: 'stl', label: 'STL' },
   { id: 'usdz', label: 'USDZ' },
@@ -27,7 +29,32 @@ export function ModelViewer({ file }: { file: HoloFile }) {
   const [spin, setSpin] = useState(true);
   const [bright, setBright] = useState(1);
   const lights = useRef<THREEns.Light[]>([]);
-  const [exporting, setExporting] = useState<Fmt | null>(null);
+  const [exporting, setExporting] = useState<Fmt | 'snap' | null>(null);
+  const snapRef = useRef<(() => Promise<Uint8Array>) | null>(null);
+
+  const snapshot = async () => {
+    if (!snapRef.current) return;
+    setExporting('snap');
+    try {
+      const png = await snapRef.current();
+      const stem = (file.title || file.name.replace(/\.[^.]+$/, '')).replace(/[^\p{L}\p{N}._-]+/gu, '_');
+      const name = `${stem}-снимок.png`;
+      const r = await window.holo.saveFiles(`${stem}-снимки`, [{ name, data: png }]);
+      if (!r.ok || !r.path) throw new Error(r.error || 'Не удалось сохранить снимок');
+      toast('Снимок сохранён в «Загрузки/Holo/3D»', 'info');
+      const form = await askLibrary({
+        fileName: name,
+        title: 'Снимок модели — в библиотеку?',
+        message: 'PNG с прозрачным фоном: удобно для документов, чата и девлогов.',
+        confirmText: 'Добавить',
+      });
+      if (form) await uploadOne(null, { localPath: r.path, name, scope: 'library', ...form });
+    } catch (e) {
+      toast((e as Error).message);
+    } finally {
+      setExporting(null);
+    }
+  };
 
   useEffect(() => {
     let disposed = false;
@@ -102,6 +129,20 @@ export function ModelViewer({ file }: { file: HoloFile }) {
           controls.update();
           renderer.render(scene, camera);
         };
+        // Снимок: тот же ракурс, ~2048 px по ширине, без сетки, прозрачный фон.
+        snapRef.current = async () => {
+          const ratio = renderer.getPixelRatio();
+          renderer.setPixelRatio(Math.max(ratio, 2048 / Math.max(1, el.clientWidth)));
+          renderer.setSize(el.clientWidth, el.clientHeight, false);
+          grid.visible = false;
+          renderer.render(scene, camera);
+          const blob = await new Promise<Blob | null>((res) => renderer.domElement.toBlob(res, 'image/png'));
+          grid.visible = true;
+          renderer.setPixelRatio(ratio);
+          renderer.setSize(el.clientWidth, el.clientHeight, false);
+          if (!blob) throw new Error('Не удалось сделать снимок');
+          return new Uint8Array(await blob.arrayBuffer());
+        };
         loop();
         setState('ready');
         cleanup = () => {
@@ -169,6 +210,9 @@ export function ModelViewer({ file }: { file: HoloFile }) {
             </button>
             <button className={styles.tb} onClick={() => setBright((b) => (b >= 2 ? 0.5 : b + 0.5))} title="Яркость света">
               <Sun size={15} /> {bright}×
+            </button>
+            <button className={styles.tb} onClick={snapshot} disabled={!!exporting} title="Снимок модели в PNG (прозрачный фон)">
+              {exporting === 'snap' ? <Loader2 size={15} className="spin" /> : <Camera size={15} />} Снимок
             </button>
             <span className={styles.tip}>
               <RotateCw size={13} /> мышь — вращать, колесо — масштаб, ПКМ — сдвиг

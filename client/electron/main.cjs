@@ -747,6 +747,8 @@ app.on('web-contents-created', (_e, contents) => {
     webPreferences.contextIsolation = true;
     webPreferences.sandbox = true;
     if (!AI_PARTITION.test(params.partition || '') || !/^https:\/\//.test(params.src || '')) return event.preventDefault();
+    // Страница ИИ тоже выглядит как настоящий Google Chrome (кнопки Google One Tap и т.п.).
+    webPreferences.preload = LOGIN_PRELOAD;
     const ses = session.fromPartition(params.partition);
     partitionBySession.set(ses, params.partition);
     hookAiDownloads(ses);
@@ -757,20 +759,10 @@ app.on('web-contents-created', (_e, contents) => {
   const isAiContents = () => contents.getType() === 'webview' || hookedSessions.has(contents.session);
 
   contents.setWindowOpenHandler(({ url }) => {
-    // Google не пускает вход, начатый из встроенной страницы (webview). Поэтому окно входа Google
-    // из webview не открываем, а переносим весь вход в отдельное окно с тем же профилем.
-    if (contents.getType() === 'webview' && (GOOGLE_LOGIN_RE.test(url) || url === 'about:blank')) {
-      const partition = partitionBySession.get(contents.session);
-      if (partition) {
-        openLoginWindow({ partition, url: contents.getURL(), title: new URL(contents.getURL()).hostname });
-        send('holo:loginRedirected', { partition });
-        return { action: 'deny' };
-      }
-    }
     // Окна входа (OAuth) открываем внутри той же ИИ-сессии — тогда вход сохранится.
-    // Некоторые сайты открывают окно входа как about:blank и потом ведут его на Google.
+    // Сайты часто открывают сначала свой адрес (auth.meshy.ai) или about:blank и уже потом ведут на Google,
+    // поэтому маскировку под Chrome получает любое такое окно, а не только accounts.google.com.
     if (isAiContents() && (/^https:\/\//.test(url) || url === 'about:blank')) {
-      const inLogin = loginContents.has(contents.id);
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
@@ -778,7 +770,7 @@ app.on('web-contents-created', (_e, contents) => {
           height: 720,
           backgroundColor: '#ffffff',
           autoHideMenuBar: true,
-          webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, ...(inLogin ? { preload: LOGIN_PRELOAD } : {}) },
+          webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, preload: LOGIN_PRELOAD },
         },
       };
     }
@@ -792,9 +784,7 @@ app.on('web-contents-created', (_e, contents) => {
   // Окна входа из window.open получают тот же User-Agent (перезагрузка не нужна —
   // она ломает окна, которые сайт сначала открывает как about:blank).
   contents.on('did-create-window', (child) => {
-    // Окна, открытые из окна входа, тоже «Firefox» — иначе Google заблокирует вход в них.
-    if (loginContents.has(contents.id)) trackLoginContents(child.webContents);
-    else if (isAiContents()) disguiseAsChrome(child.webContents);
+    if (isAiContents()) trackLoginContents(child.webContents);
   });
 
   // Главное окно Holo никуда не уходит со своей страницы (всплывающих окон ИИ это не касается).

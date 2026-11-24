@@ -6,11 +6,12 @@ import { uploadOne } from '../upload';
 import { cx, formatBytes, timeAgo } from '../util';
 import styles from './Capture3D.module.css';
 
-type Fmt = 'original' | 'glb' | 'gltf' | 'obj' | 'stl' | 'usdz';
+type Fmt = 'original' | 'glb' | 'gltf' | 'fbx' | 'obj' | 'stl' | 'usdz';
 const FMT_OPTIONS: { id: Fmt; label: string; hint: string }[] = [
   { id: 'original', label: 'Исходник', hint: 'Файл ровно как его загрузил сайт (+ текстуры рядом)' },
   { id: 'glb', label: 'GLB', hint: 'Один файл, текстуры внутри — Unity, Unreal, Godot, Blender' },
   { id: 'gltf', label: 'glTF', hint: 'JSON-вариант glTF, текстуры встроены' },
+  { id: 'fbx', label: 'FBX', hint: 'Текстуры встроены в файл — Mixamo, Unity, Unreal, Blender, 3ds Max' },
   { id: 'obj', label: 'OBJ+MTL', hint: 'Геометрия, материал и текстуры отдельными PNG' },
   { id: 'stl', label: 'STL', hint: 'Только геометрия — для 3D-печати' },
   { id: 'usdz', label: 'USDZ', hint: 'Apple / AR' },

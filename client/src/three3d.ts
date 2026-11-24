@@ -15,11 +15,12 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
  * Конвертация идёт локально, в окне Holo; текстуры берутся из самой модели целиком.
  */
 
-export type ModelFormat = 'glb' | 'gltf' | 'obj' | 'stl' | 'usdz';
+export type ModelFormat = 'glb' | 'gltf' | 'fbx' | 'obj' | 'stl' | 'usdz';
 
 export const FORMATS: { id: ModelFormat; label: string; hint: string }[] = [
   { id: 'glb', label: 'GLB', hint: 'Один файл, текстуры внутри — для Unity, Unreal, Godot, Blender' },
   { id: 'gltf', label: 'glTF', hint: 'JSON-версия glTF, текстуры встроены' },
+  { id: 'fbx', label: 'FBX', hint: 'FBX 7.4, текстуры встроены в файл — для Mixamo, Unity, Unreal, Blender, 3ds Max' },
   { id: 'obj', label: 'OBJ + MTL', hint: 'Геометрия + материал + текстуры отдельными PNG' },
   { id: 'stl', label: 'STL', hint: 'Только геометрия — для 3D-печати' },
   { id: 'usdz', label: 'USDZ', hint: 'Для Apple / AR Quick Look' },
@@ -208,6 +209,21 @@ export async function exportModel(
   if (format === 'usdz') {
     const res = await new USDZExporter().parseAsync(object);
     return [{ name: `${baseName}.usdz`, data: res }];
+  }
+  if (format === 'fbx') {
+    const { exportFbx } = await import('./fbxExport');
+    const pngs: OutFile[] = [];
+    const data = await exportFbx(object, baseName, {
+      texture: async (tex, kind) => {
+        const png = await textureToPng(tex);
+        if (!png) return null;
+        const file = `textures/${safe(baseName)}_${kind}_${pngs.length}.png`;
+        pngs.push({ name: file, data: png });
+        return { file, png };
+      },
+    });
+    // Текстуры уже внутри FBX; копии рядом — для программ, которые берут их из папки.
+    return [{ name: `${baseName}.fbx`, data }, ...pngs];
   }
   return exportObj(object, baseName);
 }
