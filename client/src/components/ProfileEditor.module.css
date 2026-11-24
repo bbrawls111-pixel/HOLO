@@ -1,0 +1,80 @@
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.avatarRow {
+  display: flex;
+  gap: 22px;
+  align-items: center;
+}
+
+.avatarDrop {
+  position: relative;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.avatarHover {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.avatarDrop:hover .avatarHover {
+  opacity: 1;
+}
+
+.avatarSide {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.avatarButtons {
+  display: flex;
+  gap: 8px;
+}
+
+.presets {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.preset {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  transition: transform 0.12s, border-color 0.12s;
+}
+.preset:hover {
+  transform: scale(1.1);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 420px;
+}
+
+.hint {
+  font-size: 12px;
+}
+
+.error {
+  color: var(--red);
+  font-size: 13px;
+}

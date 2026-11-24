@@ -1,0 +1,100 @@
+.bar {
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  /* справа — место под системные кнопки окна */
+  padding: 0 150px 0 28px;
+  -webkit-app-region: drag;
+  flex: none;
+}
+
+.bar button,
+.bar input,
+.search {
+  -webkit-app-region: no-drag;
+}
+
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+}
+
+.current {
+  font-weight: 600;
+}
+
+.right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 300px;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.search:focus-within {
+  border-color: var(--accent);
+}
+.search input {
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  min-width: 0;
+}
+
+.results {
+  position: absolute;
+  top: 44px;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid var(--border-2);
+  background: var(--panel-2);
+  box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.7);
+  animation: fadeIn 0.12s ease;
+}
+
+.result {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+}
+button.result:hover {
+  background: var(--panel-3);
+}
+
+.resultName {
+  font-weight: 550;
+}
+
+.me {
+  border: 0;
+  padding: 0;
+  margin-left: 6px;
+  background: transparent;
+  border-radius: 50%;
+}

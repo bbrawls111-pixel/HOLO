@@ -1,0 +1,68 @@
+import { LogOut } from 'lucide-react';
+import { useEffect } from 'react';
+import { ProfileEditor } from '../components/ProfileEditor';
+import { logout, refreshStats, useStore } from '../store';
+import { cx, formatBytes } from '../util';
+import styles from './Settings.module.css';
+
+export function Settings() {
+  const me = useStore((s) => s.me)!;
+  const serverUrl = useStore((s) => s.serverUrl);
+  const stats = useStore((s) => s.stats);
+  const connection = useStore((s) => s.connection);
+
+  useEffect(() => {
+    refreshStats();
+  }, []);
+
+  return (
+    <div className={styles.page}>
+      <section className={cx('card', styles.section)}>
+        <h2>Профиль</h2>
+        <p className="muted">Ник и аватар видит второй участник. Изменения приходят ему мгновенно.</p>
+        <ProfileEditor key={`${me.id}-${me.avatarVersion}`} me={me} />
+      </section>
+
+      <section className={cx('card', styles.section)}>
+        <h2>Аккаунт и сервер</h2>
+        <dl className={styles.list}>
+          <dt>Логин</dt>
+          <dd>{me.login}</dd>
+          <dt>Сервер</dt>
+          <dd className="selectable">{serverUrl}</dd>
+          <dt>Соединение</dt>
+          <dd>{connection === 'online' ? 'Подключено (WebSocket)' : connection === 'connecting' ? 'Подключение…' : 'Нет связи'}</dd>
+          <dt>Онлайн-статус</dt>
+          <dd>
+            Отправляется при входе и затем раз в {Math.round((stats?.presenceIntervalMs ?? 300_000) / 60_000)} мин. Сервер с той же
+            периодичностью снимает статус с тех, кто не отметился. При выходе из приложения статус снимается сразу.
+          </dd>
+        </dl>
+        <button className="btn danger" onClick={logout} style={{ alignSelf: 'flex-start' }}>
+          <LogOut size={16} /> Выйти
+        </button>
+      </section>
+
+      {stats && (
+        <section className={cx('card', styles.section)}>
+          <h2>Лимиты · {stats.month}</h2>
+          <dl className={styles.list}>
+            <dt>Операции</dt>
+            <dd>
+              {stats.ops.toLocaleString('ru-RU')} из {stats.opsLimit.toLocaleString('ru-RU')} (
+              {((stats.ops / stats.opsLimit) * 100).toFixed(2)}%)
+            </dd>
+            <dt>Средний бюджет</dt>
+            <dd>{Math.round(stats.opsLimit / 30).toLocaleString('ru-RU')} в день</dd>
+            <dt>Хранилище</dt>
+            <dd>{formatBytes(stats.storageBytes)}</dd>
+            <dt>Файлов / сообщений</dt>
+            <dd>
+              {stats.files} / {stats.messages}
+            </dd>
+          </dl>
+        </section>
+      )}
+    </div>
+  );
+}

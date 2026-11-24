@@ -1,0 +1,35 @@
+.page {
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 860px;
+}
+
+.section {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.section h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.section > p {
+  margin: -6px 0 6px;
+}
+
+.list {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 10px 16px;
+  margin: 0;
+}
+.list dt {
+  color: var(--text-3);
+}
+.list dd {
+  margin: 0;
+}

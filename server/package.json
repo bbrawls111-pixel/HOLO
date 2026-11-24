@@ -1,0 +1,19 @@
+{
+  "name": "holo-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Holo — приватный сервер рабочего пространства (WebSocket + REST)",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/index.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch src/index.js",
+    "create-user": "node --disable-warning=ExperimentalWarning src/cli/create-user.js",
+    "reset-password": "node --disable-warning=ExperimentalWarning src/cli/reset-password.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

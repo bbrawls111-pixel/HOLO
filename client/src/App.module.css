@@ -1,0 +1,28 @@
+.app {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 36px;
+  height: 100vh;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: radial-gradient(1200px 500px at 70% -10%, rgba(124, 92, 255, 0.07), transparent 60%), var(--bg);
+}
+
+.content {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 0 24px 20px;
+}
+
+.center {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
