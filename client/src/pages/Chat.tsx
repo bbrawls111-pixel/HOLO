@@ -9,6 +9,8 @@ import type { HoloFile, Message } from '../types';
 import { uploadOne } from '../upload';
 import { cx, fileKind, formatBytes, formatTime, presenceText } from '../util';
 import { activeSession, AiAvatar, AiPane, PROVIDER_IDS, PROVIDERS, useAi } from './AiPane';
+import { AudioPlayer, MicButton, RecordingBar, useVoiceRecorder } from '../components/Voice';
+import { openImageViewer } from '../components/ImageViewer';
 import styles from './Chat.module.css';
 
 const URL_RE = /(https?:\/\/[^\s<]+)/g;
@@ -58,9 +60,13 @@ async function saveToLibrary(file: HoloFile, preview: string | null, title = 'С
   }
 }
 
-function Attachment({ file }: { file: HoloFile }) {
-  const isImage = fileKind(file) === 'image' && file.size < 15 * 1024 * 1024;
+function Attachment({ file, mine, onOpenImage }: { file: HoloFile; mine: boolean; onOpenImage: () => void }) {
+  const kind = fileKind(file);
+  const isImage = kind === 'image';
   const url = useBinaryUrl(isImage ? fileContentPath(file) : null);
+  if (kind === 'audio' || /^voice-\d+\.webm$/.test(file.name)) {
+    return <AudioPlayer file={file} mine={mine} voice={file.name.startsWith('voice-')} />;
+  }
   const actions = (
     <div className={styles.attachActions}>
       <button title="Сохранить в библиотеку" onClick={() => saveToLibrary(file, url)}>
@@ -74,7 +80,7 @@ function Attachment({ file }: { file: HoloFile }) {
   if (isImage) {
     return (
       <div className={styles.imageAttach}>
-        {url ? <img src={url} alt={file.name} /> : <div className={cx(styles.imgSkeleton, 'skeleton')} />}
+        {url ? <img src={url} alt={file.name} onClick={onOpenImage} style={{ cursor: 'zoom-in' }} /> : <div className={cx(styles.imgSkeleton, 'skeleton')} />}
         {actions}
       </div>
     );
@@ -257,6 +263,8 @@ function DmPane({ visible }: { visible: boolean }) {
     }
   };
 
+  const recorder = useVoiceRecorder((f) => sendFiles([f]));
+
   const saveEdit = async () => {
     if (!editing?.text.trim()) return;
     try {
@@ -350,7 +358,16 @@ function DmPane({ visible }: { visible: boolean }) {
                     </div>
                   ) : (
                     <>
-                      {m.file && <Attachment file={m.file} />}
+                      {m.file && (
+                        <Attachment
+                          file={m.file}
+                          mine={mine}
+                          onOpenImage={() => {
+                            const imgs = items.filter((x) => x.file && fileKind(x.file) === 'image').map((x) => x.file!);
+                            openImageViewer(imgs, Math.max(0, imgs.findIndex((f) => f.id === m.file!.id)));
+                          }}
+                        />
+                      )}
                       {m.text && (
                         <div className={cx(styles.text, 'selectable')}>
                           <Linkified text={m.text} />
@@ -382,6 +399,10 @@ function DmPane({ visible }: { visible: boolean }) {
       </div>
 
       <div className={styles.composer}>
+        {recorder.state === 'recording' ? (
+          <RecordingBar elapsed={recorder.elapsed} level={recorder.level} onCancel={() => recorder.stop(true)} onSend={() => recorder.stop(false)} />
+        ) : (
+          <>
         <button className="btn ghost icon" title="Прикрепить файл" onClick={() => fileRef.current?.click()}>
           <Paperclip size={18} />
         </button>
@@ -421,9 +442,15 @@ function DmPane({ visible }: { visible: boolean }) {
             }
           }}
         />
-        <button className={cx('btn primary icon', styles.send)} disabled={!text.trim() || sending} onClick={send}>
-          {sending ? <Loader2 size={17} className="spin" /> : <SendHorizontal size={17} />}
-        </button>
+        {text.trim() || sending ? (
+          <button className={cx('btn primary icon', styles.send)} disabled={sending} onClick={send}>
+            {sending ? <Loader2 size={17} className="spin" /> : <SendHorizontal size={17} />}
+          </button>
+        ) : (
+          <MicButton onClick={recorder.start} />
+        )}
+          </>
+        )}
       </div>
 
       {dragging && (

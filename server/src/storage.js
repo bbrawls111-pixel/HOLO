@@ -65,6 +65,16 @@ export async function openRead(key) {
   return Readable.fromWeb(result.stream);
 }
 
+/** Удалить объект из хранилища навсегда. */
+export async function removeObject(key) {
+  if (storageMode() === 'local') {
+    await fs.promises.rm(localPath(key), { force: true });
+    return;
+  }
+  const { del } = await import('@vercel/blob');
+  await del(key, { token: config.blobToken }).catch(() => {});
+}
+
 /** Локальный режим: приём тела загрузки на диск. */
 export async function writeLocal(key, req) {
   const dest = localPath(key);

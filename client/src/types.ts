@@ -182,6 +182,8 @@ export interface HoloBridge {
   capturedList(partition: string): Promise<Captured3D[]>;
   capturedSave(partition: string, id: string): Promise<Result<unknown> & { path?: string; dir?: string; files?: number }>;
   capturedClear(partition: string): Promise<void>;
+  capturedFetch(partition: string, id: string): Promise<{ ok: boolean; name?: string; data?: Uint8Array; error?: string }>;
+  saveFiles(folder: string, files: { name: string; data: Uint8Array }[]): Promise<{ ok: boolean; path?: string; dir?: string; files?: number; error?: string }>;
   pathForFile(file: File): string | null;
   on(channel: string, handler: (payload: any) => void): () => void; // eslint-disable-line @typescript-eslint/no-explicit-any
 }

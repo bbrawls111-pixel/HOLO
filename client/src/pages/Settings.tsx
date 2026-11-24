@@ -45,15 +45,10 @@ export function Settings() {
 
       {stats && (
         <section className={cx('card', styles.section)}>
-          <h2>Лимиты · {stats.month}</h2>
+          <h2>Статистика · {stats.month}</h2>
           <dl className={styles.list}>
-            <dt>Операции</dt>
-            <dd>
-              {stats.ops.toLocaleString('ru-RU')} из {stats.opsLimit.toLocaleString('ru-RU')} (
-              {((stats.ops / stats.opsLimit) * 100).toFixed(2)}%)
-            </dd>
-            <dt>Средний бюджет</dt>
-            <dd>{Math.round(stats.opsLimit / 30).toLocaleString('ru-RU')} в день</dd>
+            <dt>Запросов к серверу</dt>
+            <dd>{stats.ops.toLocaleString('ru-RU')} за месяц (без ограничений)</dd>
             <dt>Хранилище</dt>
             <dd>{formatBytes(stats.storageBytes)}</dd>
             <dt>Файлов / сообщений</dt>

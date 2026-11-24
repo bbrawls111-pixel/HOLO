@@ -417,38 +417,53 @@ const AI_PARTITION = /^persist:ai-[a-z0-9-]+$/;
 // Скачивания со страниц ИИ: файл сохраняется в «Загрузки/Holo», а окно спрашивает,
 // добавить ли его в общую библиотеку (с названием и описанием).
 const hookedSessions = new WeakSet();
-// ---------------------------------------------------------------- вход через Google
-// Google не пускает во «встроенные браузеры» (Electron/WebView): узнаёт их по User-Agent
-// и заголовкам sec-ch-ua. На страницах входа Google представляемся обычным Firefox.
-const GOOGLE_AUTH_URLS = ['https://accounts.google.com/*', 'https://accounts.youtube.com/*', 'https://myaccount.google.com/*'];
-const GOOGLE_AUTH_RE = /^https:\/\/(accounts\.google\.com|accounts\.youtube\.com|myaccount\.google\.com)\//;
-const FIREFOX_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0';
+// ---------------------------------------------------------------- «настоящий Chrome» для ИИ-страниц
+// Google не пускает во встроенные браузеры: проверяет User-Agent и Client Hints
+// (navigator.userAgentData и заголовки sec-ch-ua — у Electron в них нет марки «Google Chrome»).
+// Для страниц ИИ и их окон входа подменяем всё это через DevTools-протокол целиком и согласованно.
+const CHROME_MAJOR = process.versions.chrome.split('.')[0];
+const CHROME_FULL = process.versions.chrome;
+const CHROME_UA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_MAJOR}.0.0.0 Safari/537.36`;
+const CHROME_METADATA = {
+  brands: [
+    { brand: 'Google Chrome', version: CHROME_MAJOR },
+    { brand: 'Chromium', version: CHROME_MAJOR },
+    { brand: 'Not)A;Brand', version: '24' },
+  ],
+  fullVersionList: [
+    { brand: 'Google Chrome', version: CHROME_FULL },
+    { brand: 'Chromium', version: CHROME_FULL },
+    { brand: 'Not)A;Brand', version: '24.0.0.0' },
+  ],
+  fullVersion: CHROME_FULL,
+  platform: 'Windows',
+  platformVersion: '15.0.0',
+  architecture: 'x86',
+  model: '',
+  mobile: false,
+  bitness: '64',
+  wow64: false,
+};
 
-function hookGoogleLogin(ses) {
-  ses.webRequest.onBeforeSendHeaders({ urls: GOOGLE_AUTH_URLS }, (d, cb) => {
-    const headers = { ...d.requestHeaders, 'User-Agent': FIREFOX_UA };
-    for (const k of Object.keys(headers)) if (/^sec-ch-ua/i.test(k)) delete headers[k];
-    cb({ requestHeaders: headers });
-  });
-}
-
-/** navigator.userAgent на странице входа тоже должен быть «Firefox». */
-function watchGoogleLogin(contents) {
-  const apply = (url, isMainFrame) => {
-    if (!isMainFrame || !hookedSessions.has(contents.session)) return;
-    const want = GOOGLE_AUTH_RE.test(url) ? FIREFOX_UA : app.userAgentFallback;
-    if (contents.getUserAgent() !== want) contents.setUserAgent(want);
-  };
-  contents.on('did-start-navigation', (e, url, _inPlace, isMainFrame) => {
-    apply(e?.url ?? url, e?.isMainFrame ?? isMainFrame);
-  });
-  contents.on('will-redirect', (e, url) => apply(e?.url ?? url, true));
+async function disguiseAsChrome(contents) {
+  try {
+    contents.setUserAgent(CHROME_UA);
+    if (!contents.debugger.isAttached()) contents.debugger.attach('1.3');
+    await contents.debugger.sendCommand('Emulation.setUserAgentOverride', {
+      userAgent: CHROME_UA,
+      acceptLanguage: 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+      platform: 'Win32',
+      userAgentMetadata: CHROME_METADATA,
+    });
+  } catch {
+    /* contents уже закрыт или к нему подключены DevTools */
+  }
 }
 
 function hookAiDownloads(ses) {
   if (hookedSessions.has(ses)) return;
   hookedSessions.add(ses);
-  hookGoogleLogin(ses);
+  ses.setUserAgent(CHROME_UA, 'ru-RU,ru,en-US,en');
   ses.on('will-download', (_event, item) => {
     const dir = path.join(app.getPath('downloads'), 'Holo');
     fs.mkdirSync(dir, { recursive: true });
@@ -491,7 +506,7 @@ function listCaptures(partition) {
 }
 
 function hookCapture(ses, partition) {
-  if (!/^persist:ai-meshy-/.test(partition) || hookedCapture.has(ses)) return;
+  if (!/^persist:ai-(meshy|mixamo)-/.test(partition) || hookedCapture.has(ses)) return;
   hookedCapture.add(ses);
   ses.webRequest.onCompleted({ urls: ['https://*/*'] }, (d) => {
     try {
@@ -548,7 +563,74 @@ async function fetchGltfDeps(ses, gltfUrl, gltfPath, saved) {
   }
 }
 
+/**
+ * OBJ: материал (.mtl) указан в самом файле (mtllib), текстуры — в .mtl (map_Kd, map_Bump, norm …).
+ * Ищем .mtl среди пойманного или рядом с .obj по тому же адресу, затем качаем все текстуры из него.
+ */
+async function fetchObjDeps(ses, item, groupItems, objPath, saved) {
+  const objText = fs.readFileSync(objPath, 'utf8');
+  const dir = path.dirname(objPath);
+  const mtlNames = [...objText.matchAll(/^mtllib\s+(.+)$/gm)].map((m) => m[1].trim());
+  if (!mtlNames.length) mtlNames.push(path.basename(item.name, path.extname(item.name)) + '.mtl');
+  for (const name of mtlNames) {
+    const captured = groupItems.find((x) => x.name === path.basename(name));
+    const url = captured ? captured.url : new URL(name, item.url).toString();
+    const dest = path.join(dir, name.replace(/\.\.[\\/]/g, ''));
+    try {
+      saved.push(await fetchTo(ses, url, dest));
+    } catch {
+      continue; // .mtl может не существовать — тогда модель без материала
+    }
+    const mtl = fs.readFileSync(dest, 'utf8');
+    const maps = [...mtl.matchAll(/^\s*(?:map_\w+|bump|norm|disp|refl)\s+(?:-\S+\s+\S+\s+)*(.+?)\s*$/gim)].map((m) => m[1]);
+    for (const rel of new Set(maps)) {
+      const texDest = path.join(dir, rel.replace(/\.\.[\\/]/g, '').replace(/^[\\/]+/, ''));
+      if (saved.includes(texDest) || !texDest.startsWith(dir)) continue;
+      const cap = groupItems.find((x) => x.name === path.basename(rel));
+      try {
+        saved.push(await fetchTo(ses, cap ? cap.url : new URL(rel, url).toString(), texDest));
+      } catch {
+        /* текстура недоступна — пропускаем */
+      }
+    }
+  }
+}
+
 function registerCaptureIpc() {
+  // Байты пойманной модели — для конвертации в другой формат в окне Holo.
+  ipcMain.handle('holo:capturedFetch', async (_e, { partition, id }) => {
+    if (!AI_PARTITION.test(partition)) return { ok: false, error: 'Недопустимая сессия' };
+    const item = captures.get(partition)?.get(id);
+    if (!item) return { ok: false, error: 'Файл больше не найден — откройте модель на странице ещё раз' };
+    try {
+      const res = await session.fromPartition(partition).fetch(item.url);
+      if (!res.ok) return { ok: false, error: `Не удалось скачать (${res.status}). Обновите страницу модели.` };
+      return { ok: true, name: item.name, data: new Uint8Array(await res.arrayBuffer()) };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // Сохранить набор файлов (модель + материалы + текстуры) в «Загрузки/Holo/3D/<папка>».
+  ipcMain.handle('holo:saveFiles', async (_e, { folder, files }) => {
+    try {
+      const dir = path.join(app.getPath('downloads'), 'Holo', '3D', String(folder).replace(/[\\/:*?"<>|]/g, '_').slice(0, 80) || 'model');
+      const written = [];
+      for (const f of files) {
+        const rel = String(f.name).replace(/\.\.[\\/]/g, '').replace(/^[\\/]+/, '');
+        const dest = path.join(dir, rel);
+        if (!dest.startsWith(dir)) continue;
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.writeFileSync(dest, Buffer.from(f.data));
+        written.push(dest);
+      }
+      if (written[0]) shell.showItemInFolder(written[0]);
+      return { ok: true, path: written[0], dir, files: written.length };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('holo:capturedList', (_e, { partition }) => listCaptures(partition));
   ipcMain.handle('holo:capturedClear', (_e, { partition }) => {
     captures.delete(partition);
@@ -567,10 +649,7 @@ function registerCaptureIpc() {
       const main = await fetchTo(ses, item.url, path.join(dir, item.name));
       saved.push(main);
       if (/\.gltf$/i.test(item.name)) await fetchGltfDeps(ses, item.url, main, saved);
-      if (/\.obj$/i.test(item.name)) {
-        const mtl = groupItems.find((x) => /\.mtl$/i.test(x.name));
-        if (mtl) saved.push(await fetchTo(ses, mtl.url, path.join(dir, mtl.name)));
-      }
+      if (/\.obj$/i.test(item.name)) await fetchObjDeps(ses, item, groupItems, main, saved);
       // Текстуры той же модели — рядом, в папке textures.
       for (const t of groupItems.filter((x) => x.kind === 'texture')) {
         const dest = path.join(dir, 'textures', t.name);
@@ -629,22 +708,15 @@ app.on('web-contents-created', (_e, contents) => {
     return { action: 'deny' };
   });
 
-  watchGoogleLogin(contents);
+  // Страницы ИИ (webview) — «настоящий Chrome» с первой же загрузки.
+  if (contents.getType() === 'webview') disguiseAsChrome(contents);
 
-  // Окно входа Google: сразу перезапускаем загрузку уже с нужным User-Agent.
-  // У окна из window.open JavaScript наследует User-Agent родителя, поэтому подменяем
-  // его через DevTools-протокол — это действует и на navigator.userAgent.
+  // Окна входа из window.open: подменяем и перезапускаем загрузку уже с нужной личностью
+  // (иначе первый документ окна наследует данные родителя).
   contents.on('did-create-window', async (child, { url }) => {
-    if (!isAiContents() || !GOOGLE_AUTH_RE.test(url || '')) return;
-    const wc = child.webContents;
-    try {
-      wc.setUserAgent(FIREFOX_UA);
-      if (!wc.debugger.isAttached()) wc.debugger.attach('1.3');
-      await wc.debugger.sendCommand('Emulation.setUserAgentOverride', { userAgent: FIREFOX_UA, platform: 'Win32' });
-      wc.loadURL(url).catch(() => {});
-    } catch {
-      /* окно уже закрыто */
-    }
+    if (!isAiContents()) return;
+    await disguiseAsChrome(child.webContents);
+    if (url && /^https:\/\//.test(url)) child.webContents.loadURL(url).catch(() => {});
   });
 
   // Главное окно Holo никуда не уходит со своей страницы (всплывающих окон ИИ это не касается).

@@ -78,7 +78,7 @@ export default function register(router) {
 
   router.delete('/api/boards/:id', async ({ params, user }) => {
     const cur = await visible(requireInt(params.id, 'id'), user.id);
-    await q('UPDATE boards SET deleted = TRUE WHERE id = ?', cur.id);
+    await q('UPDATE boards SET deleted = TRUE, deleted_at = ?, deleted_by = ? WHERE id = ?', Date.now(), user.id, cur.id);
     if (cur.owner_id === null) await emit('board.deleted', { id: cur.id, kind: cur.kind, title: cur.title }, user.id);
     return { ok: true };
   });

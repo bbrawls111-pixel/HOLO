@@ -192,7 +192,7 @@ function ChartEditor({ board }: { board: Board<ChartData> }) {
     setData({ columns: d.columns.filter((_, i) => i !== ci), rows: d.rows.map((r) => r.filter((_, i) => i !== ci)) });
 
   const remove = async () => {
-    if (!(await confirmAction(`Удалить «${board.title}»?`, 'График исчезнет у обоих участников.'))) return;
+    if (!(await confirmAction(`Удалить «${board.title}»?`, 'График переместится в корзину — его можно будет вернуть.', 'В корзину'))) return;
     deleteBoard(board).catch((e) => toast(e.message));
   };
 

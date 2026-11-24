@@ -30,8 +30,7 @@ export function Home() {
   }, []);
 
   const partner = Object.values(users).find((u) => u.id !== me.id);
-  const pct = stats ? Math.min(100, (stats.ops / stats.opsLimit) * 100) : 0;
-  const dayBudget = stats ? Math.round(stats.opsLimit / 30) : 0;
+  const boards = useStore((s) => s.boards);
 
   return (
     <div className={cx(styles.page, 'page-enter')}>
@@ -128,18 +127,11 @@ export function Home() {
 
         {stats && (
           <section className={cx('card', styles.side)}>
-            <div className="label">Сервер · {stats.month}</div>
-            <div className={styles.bigNum}>
-              {stats.ops.toLocaleString('ru-RU')}
-              <span className="faint"> / {stats.opsLimit.toLocaleString('ru-RU')}</span>
-            </div>
-            <div className={styles.meter}>
-              <div style={{ width: `${pct}%` }} />
-            </div>
+            <div className="label">Проект</div>
             <div className={styles.statGrid}>
               <div>
-                <span className="faint">Бюджет в день</span>
-                <strong>{dayBudget.toLocaleString('ru-RU')}</strong>
+                <span className="faint">Документов</span>
+                <strong>{Object.values(boards).filter((b) => b.kind === 'doc').length}</strong>
               </div>
               <div>
                 <span className="faint">Хранилище</span>

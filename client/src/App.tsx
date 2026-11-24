@@ -1,5 +1,6 @@
 import { Loader2 } from 'lucide-react';
 import { useEffect } from 'react';
+import { ImageViewer } from './components/ImageViewer';
 import { Overlays } from './components/Overlays';
 import { Sidebar } from './components/Sidebar';
 import { StatusBar } from './components/StatusBar';
@@ -14,6 +15,7 @@ import { Login } from './pages/Login';
 import { Onboarding } from './pages/Onboarding';
 import { Settings } from './pages/Settings';
 import { Structures } from './pages/Structures';
+import { Trash } from './pages/Trash';
 import { askLibrary, boot, connectBridge, useStore } from './store';
 import { uploadOne } from './upload';
 import { formatBytes } from './util';
@@ -89,6 +91,7 @@ export function App() {
               {page === 'charts' && <Charts />}
               {page === 'structures' && <Structures />}
               {page === 'history' && <HistoryPage />}
+              {page === 'trash' && <Trash />}
               {page === 'settings' && <Settings />}
               {/* Чат с ИИ-страницами держим смонтированным — сессии не перезагружаются */}
               {(chatVisited || page === 'chat') && <Chat visible={page === 'chat'} />}
@@ -97,6 +100,7 @@ export function App() {
         </div>
       </main>
       <StatusBar />
+      <ImageViewer />
       <Overlays />
     </div>
   );

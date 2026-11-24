@@ -3,12 +3,12 @@ import { api } from './api';
 import notifySoundUrl from './assets/notify.mp3';
 import type { Board, Bootstrap, Channel, HoloEvent, HoloFile, Me, Message, Stats, User } from './types';
 
-export type Page = 'home' | 'library' | 'chat' | 'docs' | 'charts' | 'structures' | 'history' | 'settings';
+export type Page = 'home' | 'library' | 'chat' | 'docs' | 'charts' | 'structures' | 'history' | 'trash' | 'settings';
 
 /** Личка двух разработчиков — канал «general». */
 export const DM_CHANNEL = 'general';
 
-export type AiProvider = 'chatgpt' | 'gemini' | 'claude' | 'fish' | 'meshy';
+export type AiProvider = 'chatgpt' | 'gemini' | 'claude' | 'fish' | 'meshy' | 'mixamo';
 export type ChatTarget = 'dm' | `ai:${AiProvider}`;
 
 interface ChannelMessages {
@@ -353,6 +353,8 @@ export function applyEvent(ev: HoloEvent) {
       break;
     case 'file.comment':
       pushActivity(ev);
+      break;
+    case 'trash.changed':
       break;
     case 'board.created':
     case 'board.updated':

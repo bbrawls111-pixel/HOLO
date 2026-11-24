@@ -13,6 +13,7 @@ const TITLES: Record<Page, string> = {
   chat: 'Чаты и ИИ',
   docs: 'Документы',
   history: 'История',
+  trash: 'Корзина',
   settings: 'Настройки',
 };
 

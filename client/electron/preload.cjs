@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('holo', {
   capturedList: (partition) => ipcRenderer.invoke('holo:capturedList', { partition }),
   capturedSave: (partition, id) => ipcRenderer.invoke('holo:capturedSave', { partition, id }),
   capturedClear: (partition) => ipcRenderer.invoke('holo:capturedClear', { partition }),
+  capturedFetch: (partition, id) => ipcRenderer.invoke('holo:capturedFetch', { partition, id }),
+  saveFiles: (folder, files) => ipcRenderer.invoke('holo:saveFiles', { folder, files }),
   pathForFile: (file) => {
     try {
       return webUtils.getPathForFile(file) || null;

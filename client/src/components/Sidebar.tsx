@@ -1,4 +1,4 @@
-import { BarChart3, BookOpen, FolderKanban, History, LayoutGrid, MessagesSquare, Network, Settings } from 'lucide-react';
+import { BarChart3, BookOpen, FolderKanban, History, LayoutGrid, MessagesSquare, Network, Settings, Trash2 } from 'lucide-react';
 import { navigate, useStore, type Page } from '../store';
 import { cx, presenceText } from '../util';
 import { Avatar } from './Avatar';
@@ -13,6 +13,7 @@ const NAV: { page: Page; label: string; icon: typeof LayoutGrid }[] = [
   { page: 'charts', label: 'Графики', icon: BarChart3 },
   { page: 'structures', label: 'Структуры', icon: Network },
   { page: 'history', label: 'История', icon: History },
+  { page: 'trash', label: 'Корзина', icon: Trash2 },
   { page: 'settings', label: 'Настройки', icon: Settings },
 ];
 

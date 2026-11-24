@@ -7,6 +7,7 @@ import logoClaude from '../assets/ai/claude.png';
 import logoFish from '../assets/ai/fish.png';
 import logoGemini from '../assets/ai/gemini.png';
 import logoMeshy from '../assets/ai/meshy.png';
+import logoMixamo from '../assets/ai/mixamo.png';
 import { askText, confirmAction, type AiProvider } from '../store';
 import { Capture3DPanel, useCaptured } from './Capture3D';
 import { cx } from '../util';
@@ -29,6 +30,7 @@ export const PROVIDERS: Record<AiProvider, ProviderInfo> = {
   claude: { name: 'Claude', url: 'https://claude.ai/new', color: '#d97757', icon: Asterisk, tagline: 'Anthropic', logo: logoClaude, logoBg: '#ffffff', logoPad: 14 },
   fish: { name: 'Fish Audio', url: 'https://fish.audio/', color: '#0ea5e9', icon: AudioLines, tagline: 'Голос и озвучка', logo: logoFish, logoBg: '#ffffff', logoPad: 6 },
   meshy: { name: 'Meshy', url: 'https://www.meshy.ai/ru', color: '#a3e635', icon: Box, tagline: '3D-модели', logo: logoMeshy, logoBg: '#1b1240', logoPad: 0 },
+  mixamo: { name: 'Mixamo', url: 'https://www.mixamo.com/', color: '#ff7a1a', icon: Box, tagline: 'Риггинг и анимации', logo: logoMixamo, logoBg: '#1c1424', logoPad: 20 },
 };
 
 /** Круглая аватарка ИИ с настоящим логотипом сервиса. */
@@ -66,8 +68,16 @@ const DEFAULT: AiState = {
     { id: 'claude-main', provider: 'claude', name: 'Основная', account: 1 },
     { id: 'fish-main', provider: 'fish', name: 'Основная', account: 1 },
     { id: 'meshy-main', provider: 'meshy', name: 'Основная', account: 1 },
+    { id: 'mixamo-main', provider: 'mixamo', name: 'Основная', account: 1 },
   ],
-  active: { chatgpt: 'chatgpt-main', gemini: 'gemini-main', claude: 'claude-main', fish: 'fish-main', meshy: 'meshy-main' },
+  active: {
+    chatgpt: 'chatgpt-main',
+    gemini: 'gemini-main',
+    claude: 'claude-main',
+    fish: 'fish-main',
+    meshy: 'meshy-main',
+    mixamo: 'mixamo-main',
+  },
 };
 
 function load(): AiState {
@@ -176,7 +186,7 @@ export function AiPane({ provider, visible }: { provider: AiProvider; visible: b
           >
             <ExternalLink size={15} />
           </button>
-          {provider === 'meshy' && session && <Capture3DButton partition={partitionOf(session)} open={show3d} onToggle={() => setShow3d((v) => !v)} />}
+          {(provider === 'meshy' || provider === 'mixamo') && session && <Capture3DButton partition={partitionOf(session)} open={show3d} onToggle={() => setShow3d((v) => !v)} />}
           <div className={styles.sessionWrap}>
             <button className={styles.sessionBtn} onClick={() => setMenu((m) => !m)}>
               <UserRound size={15} />
@@ -202,7 +212,7 @@ export function AiPane({ provider, visible }: { provider: AiProvider; visible: b
               allowpopups="true"
             />
           ))}
-        {provider === 'meshy' && session && show3d && <Capture3DPanel partition={partitionOf(session)} onClose={() => setShow3d(false)} />}
+        {(provider === 'meshy' || provider === 'mixamo') && session && show3d && <Capture3DPanel partition={partitionOf(session)} onClose={() => setShow3d(false)} />}
       </div>
     </section>
   );

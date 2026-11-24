@@ -43,7 +43,7 @@ export function FilePreview({ file, version, large }: { file: HoloFile; version?
     setFontFamily(null);
     setError('');
     const fail = (e: Error) => alive && setError(e.message);
-    if (['image', 'audio', 'video'].includes(kind) && file.size < 200 * 1024 * 1024) {
+    if (['image', 'audio', 'video'].includes(kind)) {
       binaryUrl(path).then((u) => alive && setUrl(u)).catch(fail);
     } else if ((kind === 'text' || kind === 'code') && file.size < 5 * 1024 * 1024) {
       binaryText(path).then((t) => alive && setText(t)).catch(fail);

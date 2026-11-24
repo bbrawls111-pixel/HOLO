@@ -1,0 +1,143 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  background: rgba(3, 3, 7, 0.94);
+  backdrop-filter: blur(12px);
+  animation: fadeIn 0.18s ease;
+  user-select: none;
+}
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  z-index: 2;
+}
+.name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.name strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.name span {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(20, 20, 31, 0.85);
+  border: 1px solid var(--border-2);
+}
+.tools button {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tools button:hover {
+  background: var(--panel-3);
+  color: var(--text);
+}
+.zoom {
+  min-width: 48px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+}
+.stage:active {
+  cursor: grabbing;
+}
+.img {
+  max-width: none;
+  max-height: none;
+  transform-origin: center center;
+  transition: transform 0.12s ease-out;
+  box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.9);
+  animation: popIn 0.25s ease;
+  image-rendering: auto;
+}
+.nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid var(--border-2);
+  background: rgba(20, 20, 31, 0.8);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, transform 0.15s;
+}
+.nav:hover {
+  background: var(--accent);
+  transform: translateY(-50%) scale(1.06);
+}
+.prev {
+  left: 20px;
+}
+.next {
+  right: 20px;
+}
+.strip {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  overflow-x: auto;
+}
+.thumb {
+  width: 64px;
+  height: 64px;
+  flex: none;
+  padding: 0;
+  border-radius: 10px;
+  border: 2px solid transparent;
+  overflow: hidden;
+  background: var(--panel-2);
+  opacity: 0.55;
+  transition: opacity 0.15s, border-color 0.15s, transform 0.15s;
+}
+.thumb:hover {
+  opacity: 0.9;
+}
+.thumbOn {
+  opacity: 1;
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}

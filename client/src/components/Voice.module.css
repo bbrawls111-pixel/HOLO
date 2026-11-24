@@ -1,0 +1,133 @@
+.player {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 270px;
+  padding: 2px 2px 0;
+}
+.play {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 0;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #fff;
+  transition: transform 0.15s;
+}
+.play:hover {
+  transform: scale(1.06);
+}
+.mine .play {
+  background: #fff;
+  color: #6a4ae8;
+}
+.body {
+  flex: 1;
+  min-width: 0;
+}
+.title {
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wave {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+  cursor: pointer;
+}
+.bar {
+  flex: 1;
+  min-width: 2px;
+  border-radius: 2px;
+  background: rgba(164, 164, 185, 0.45);
+  transition: background 0.1s;
+}
+.barOn {
+  background: var(--accent-2);
+}
+.mine .bar {
+  background: rgba(255, 255, 255, 0.4);
+}
+.mine .barOn {
+  background: #fff;
+}
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.mine .meta {
+  color: rgba(255, 255, 255, 0.75);
+}
+.speed {
+  padding: 0 6px;
+  height: 18px;
+  border-radius: 9px;
+  border: 0;
+  background: rgba(255, 255, 255, 0.12);
+  color: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.mic {
+  border-radius: 50%;
+  transition: transform 0.15s;
+}
+.mic:hover {
+  transform: scale(1.08);
+}
+
+.recording {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  animation: fadeIn 0.15s ease;
+}
+.recDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--red);
+  animation: pulseRed 1s ease infinite;
+}
+@keyframes pulseRed {
+  50% {
+    opacity: 0.3;
+  }
+}
+.recTime {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  min-width: 40px;
+}
+.recWave {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  height: 30px;
+}
+.recWave span {
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent-2);
+  transition: height 0.08s;
+}
+.recSend {
+  border-radius: 50%;
+}

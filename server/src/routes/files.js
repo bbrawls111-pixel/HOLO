@@ -180,7 +180,8 @@ export default function register(router) {
 
   router.delete('/api/files/:id', async ({ params, user }) => {
     const file = await getFile(requireInt(params.id, 'id'));
-    await q('UPDATE files SET deleted = TRUE WHERE id = ?', file.id);
+    // В корзину: файл можно будет вернуть или удалить навсегда.
+    await q('UPDATE files SET deleted = TRUE, deleted_at = ?, deleted_by = ? WHERE id = ?', Date.now(), user.id, file.id);
     if (file.scope === 'library') await emit('file.deleted', { id: file.id, path: file.title || file.name }, user.id);
     return { ok: true };
   });

@@ -8,6 +8,8 @@ import { FilePreview, KIND_ICON, KIND_LABEL } from '../components/FilePreview';
 import { askLibrary, askText, confirmAction, DM_CHANNEL, eventBus, toast, upsertFile, useStore } from '../store';
 import type { FileComment, FileVersion, HoloEvent, HoloFile } from '../types';
 import { collectDropped, uploadOne, useUploads } from '../upload';
+import { openImageViewer } from '../components/ImageViewer';
+import { ModelViewer } from '../components/ModelViewer';
 import { cx, fileKind, formatBytes, formatDateTime, timeAgo, type FileKind } from '../util';
 import styles from './Library.module.css';
 
@@ -22,7 +24,6 @@ const FILTERS: { id: 'all' | FileKind | 'docs'; label: string }[] = [
   { id: 'other', label: 'Другое' },
 ];
 
-const THUMB_LIMIT = 15 * 1024 * 1024;
 
 /** Загрузить файлы в библиотеку. Один файл — спросим название и описание. */
 export async function addToLibrary(files: File[]) {
@@ -183,7 +184,7 @@ export function Library() {
 // ======================================================================= карточка
 function LibraryCard({ file, index, author }: { file: HoloFile; index: number; author?: string }) {
   const kind = fileKind(file);
-  const thumb = useBinaryUrl(kind === 'image' && file.size < THUMB_LIMIT ? fileContentPath(file) : null);
+  const thumb = useBinaryUrl(kind === 'image' ? fileContentPath(file) : null);
   const Icon = KIND_ICON[kind];
   const ext = file.name.includes('.') ? file.name.split('.').pop()!.toUpperCase() : '';
   return (
@@ -284,7 +285,7 @@ function FileModal({ file }: { file: HoloFile }) {
 
   const remove = () =>
     run(async () => {
-      if (await confirmAction(`Удалить «${file.title || file.name}»?`, 'Элемент исчезнет из библиотеки у обоих участников.')) {
+      if (await confirmAction(`Удалить «${file.title || file.name}»?`, 'Элемент переместится в корзину у обоих участников — его можно будет вернуть.', 'В корзину')) {
         await api('DELETE', `/api/files/${file.id}`);
         close();
       }
@@ -316,8 +317,19 @@ function FileModal({ file }: { file: HoloFile }) {
   return (
     <div className={styles.modalBackdrop} onMouseDown={close}>
       <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
-        <div className={styles.modalPreview}>
-          <FilePreview file={file} version={previewVersion} large />
+        <div
+          className={styles.modalPreview}
+          onClick={() => {
+            if (fileKind(file) !== 'image' || previewVersion) return;
+            const imgs = Object.values(useStore.getState().files)
+              .filter((f) => fileKind(f) === 'image')
+              .sort((a, b) => b.id - a.id);
+            openImageViewer(imgs, Math.max(0, imgs.findIndex((f) => f.id === file.id)));
+          }}
+          style={fileKind(file) === 'image' ? { cursor: 'zoom-in' } : undefined}
+          title={fileKind(file) === 'image' ? 'Открыть на весь экран' : undefined}
+        >
+          {fileKind(file) === 'model' ? <ModelViewer file={file} /> : <FilePreview file={file} version={previewVersion} large />}
           {previewVersion && <div className={styles.previewBadge}>Просмотр v{previewVersion}</div>}
         </div>
 

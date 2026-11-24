@@ -76,7 +76,7 @@ function DocEditor({ board }: { board: Board<DocData> }) {
   };
 
   const remove = async () => {
-    if (!(await confirmAction(`Удалить «${board.title}»?`, board.private ? 'Документ будет удалён.' : 'Документ исчезнет у обоих участников.'))) return;
+    if (!(await confirmAction(`Удалить «${board.title}»?`, 'Документ переместится в корзину — его можно будет вернуть.', 'В корзину'))) return;
     try {
       await deleteBoard(board);
     } catch (e) {

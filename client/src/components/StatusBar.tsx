@@ -1,6 +1,7 @@
-import { Activity, Wifi, WifiOff } from 'lucide-react';
+import { HardDrive, Wifi, WifiOff } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useStore } from '../store';
+import { formatBytes } from '../util';
 import styles from './StatusBar.module.css';
 
 export function StatusBar() {
@@ -14,8 +15,6 @@ export function StatusBar() {
     return () => clearInterval(t);
   }, []);
 
-  const pct = stats ? Math.min(100, (stats.ops / stats.opsLimit) * 100) : 0;
-
   return (
     <footer className={styles.bar}>
       <div className={styles.group}>
@@ -25,14 +24,11 @@ export function StatusBar() {
       </div>
 
       {stats && (
-        <div className={styles.group} title="Серверные операции за месяц">
-          <Activity size={14} className="faint" />
-          <span className="faint">Операции за месяц</span>
-          <div className={styles.meter}>
-            <div style={{ width: `${pct}%` }} />
-          </div>
+        <div className={styles.group} title="Общее хранилище проекта">
+          <HardDrive size={14} className="faint" />
+          <span className="faint">Библиотека</span>
           <span>
-            {stats.ops.toLocaleString('ru-RU')} / {stats.opsLimit.toLocaleString('ru-RU')}
+            {stats.files} файлов · {formatBytes(stats.storageBytes)}
           </span>
         </div>
       )}

@@ -197,6 +197,12 @@ CREATE TABLE IF NOT EXISTS boards (
 );
 CREATE INDEX IF NOT EXISTS boards_kind_idx ON boards (kind, id);
 
+ALTER TABLE files ADD COLUMN IF NOT EXISTS deleted_at BIGINT;
+ALTER TABLE files ADD COLUMN IF NOT EXISTS deleted_by INTEGER;
+ALTER TABLE files ADD COLUMN IF NOT EXISTS purged BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE boards ADD COLUMN IF NOT EXISTS deleted_at BIGINT;
+ALTER TABLE boards ADD COLUMN IF NOT EXISTS deleted_by INTEGER;
+
 INSERT INTO channels (id, name, position) VALUES
   ('general', 'Общий', 0), ('dev', 'Разработка', 1), ('art', 'Арт и звук', 2), ('ideas', 'Идеи', 3)
 ON CONFLICT (id) DO NOTHING;
