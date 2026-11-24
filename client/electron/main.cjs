@@ -435,6 +435,7 @@ function disguiseAsChrome(contents) {
 }
 
 function hookAiDownloads(ses) {
+  maskChromeHeaders(ses);
   if (hookedSessions.has(ses)) return;
   hookedSessions.add(ses);
   ses.setUserAgent(PLAIN_UA, 'ru-RU,ru,en-US,en');
@@ -578,6 +579,38 @@ const loginWindows = new Map();
 const partitionBySession = new WeakMap();
 const GOOGLE_LOGIN_RE = /^https:\/\/accounts\.google\.com\//;
 
+// Google пускает вход только «настоящим» браузерам. Окно входа представляется полноценным
+// Google Chrome: бренд в заголовках Sec-CH-UA (здесь) и в странице (login-preload.cjs).
+// Проверено на рандомном gmail: 9 из 9 попыток прошли, без этого — блок «небезопасный браузер».
+const LOGIN_PRELOAD = path.join(__dirname, 'login-preload.cjs');
+const loginContents = new Set(); // id webContents окон входа и их всплывающих окон
+const maskedSessions = new WeakSet();
+const CHROME_FULL = process.versions.chrome;
+const CHROME_MAJOR = CHROME_FULL.split('.')[0];
+const SEC_CH_UA = `"Google Chrome";v="${CHROME_MAJOR}", "Chromium";v="${CHROME_MAJOR}", "Not)A;Brand";v="24"`;
+const SEC_CH_UA_FULL = `"Google Chrome";v="${CHROME_FULL}", "Chromium";v="${CHROME_FULL}", "Not)A;Brand";v="24.0.0.0"`;
+
+/** Во всех ИИ-сессиях заголовки браузера — как у Google Chrome (у Electron там нет бренда Chrome). */
+function maskChromeHeaders(ses) {
+  if (maskedSessions.has(ses)) return;
+  maskedSessions.add(ses);
+  ses.webRequest.onBeforeSendHeaders((details, cb) => {
+    const h = details.requestHeaders;
+    for (const k of Object.keys(h)) {
+      if (/^sec-ch-ua$/i.test(k)) h[k] = SEC_CH_UA;
+      else if (/^sec-ch-ua-full-version-list$/i.test(k)) h[k] = SEC_CH_UA_FULL;
+    }
+    cb({ requestHeaders: h });
+  });
+}
+
+function trackLoginContents(wc) {
+  const id = wc.id;
+  loginContents.add(id);
+  wc.setUserAgent(PLAIN_UA);
+  wc.once('destroyed', () => loginContents.delete(id));
+}
+
 function registerLoginWindow() {
   ipcMain.handle('holo:openLoginWindow', (_e, opts) => openLoginWindow(opts));
 }
@@ -599,9 +632,10 @@ function openLoginWindow({ partition, url, title }) {
       autoHideMenuBar: true,
       backgroundColor: '#ffffff',
       parent: win ?? undefined,
-      webPreferences: { partition, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
+      webPreferences: { partition, preload: LOGIN_PRELOAD, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
     });
-    w.webContents.setUserAgent(PLAIN_UA);
+    maskChromeHeaders(ses);
+    trackLoginContents(w.webContents);
     w.webContents.setWindowOpenHandler(({ url: u }) =>
       /^https:\/\//.test(u) || u === 'about:blank'
         ? {
@@ -611,12 +645,12 @@ function openLoginWindow({ partition, url, title }) {
               height: 720,
               autoHideMenuBar: true,
               parent: w,
-              webPreferences: { partition, contextIsolation: true, sandbox: true, nodeIntegration: false },
+              webPreferences: { partition, preload: LOGIN_PRELOAD, contextIsolation: true, sandbox: true, nodeIntegration: false },
             },
           }
         : { action: 'deny' },
     );
-    w.webContents.on('did-create-window', (child) => child.webContents.setUserAgent(PLAIN_UA));
+    w.webContents.on('did-create-window', (child) => trackLoginContents(child.webContents));
     loginWindows.set(partition, w);
     w.on('closed', () => {
       loginWindows.delete(partition);
@@ -736,6 +770,7 @@ app.on('web-contents-created', (_e, contents) => {
     // Окна входа (OAuth) открываем внутри той же ИИ-сессии — тогда вход сохранится.
     // Некоторые сайты открывают окно входа как about:blank и потом ведут его на Google.
     if (isAiContents() && (/^https:\/\//.test(url) || url === 'about:blank')) {
+      const inLogin = loginContents.has(contents.id);
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
@@ -743,7 +778,7 @@ app.on('web-contents-created', (_e, contents) => {
           height: 720,
           backgroundColor: '#ffffff',
           autoHideMenuBar: true,
-          webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+          webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, ...(inLogin ? { preload: LOGIN_PRELOAD } : {}) },
         },
       };
     }
@@ -757,7 +792,9 @@ app.on('web-contents-created', (_e, contents) => {
   // Окна входа из window.open получают тот же User-Agent (перезагрузка не нужна —
   // она ломает окна, которые сайт сначала открывает как about:blank).
   contents.on('did-create-window', (child) => {
-    if (isAiContents()) disguiseAsChrome(child.webContents);
+    // Окна, открытые из окна входа, тоже «Firefox» — иначе Google заблокирует вход в них.
+    if (loginContents.has(contents.id)) trackLoginContents(child.webContents);
+    else if (isAiContents()) disguiseAsChrome(child.webContents);
   });
 
   // Главное окно Holo никуда не уходит со своей страницы (всплывающих окон ИИ это не касается).
