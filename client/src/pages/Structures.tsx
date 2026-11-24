@@ -1,4 +1,4 @@
-﻿import {
+import {
   Background, Controls, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type Node, type NodeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
