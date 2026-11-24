@@ -46,17 +46,33 @@ async function rawRequest(method, p, { body, headers = {}, timeout = 30_000 } = 
     if (body instanceof ReadableStream) init.duplex = 'half';
   }
   const res = await fetch(auth.serverUrl + p, init);
-  if (res.status === 401 && auth.token && p !== '/api/auth/login') handleUnauthorized();
+  // Выходим из аккаунта, только если 401 ответил наш API (JSON), а не страница защиты Vercel.
+  if (res.status === 401 && isJson(res) && auth.token && p !== '/api/auth/login') handleUnauthorized();
   return res;
 }
 
+const isJson = (res) => (res.headers.get('content-type') || '').includes('application/json');
+
+const VERCEL_PROTECTION_ERROR =
+  'Сервер закрыт защитой Vercel. Отключите Settings → Deployment Protection → Vercel Authentication для проекта.';
+
 async function readResult(res) {
   const text = await res.text();
+  if (!isJson(res)) {
+    if (res.ok) return { ok: true, status: res.status, data: text };
+    if ((res.status === 401 || res.status === 403) && /vercel/i.test(text)) {
+      return { ok: false, status: res.status, error: VERCEL_PROTECTION_ERROR };
+    }
+    if (res.status === 404 && /NOT_FOUND|DEPLOYMENT_NOT_FOUND/.test(text)) {
+      return { ok: false, status: res.status, error: 'По этому адресу нет сервера Holo. Проверьте адрес или деплой на Vercel.' };
+    }
+    return { ok: false, status: res.status, error: `Ошибка сервера ${res.status}` };
+  }
   let data = null;
   try {
     data = text ? JSON.parse(text) : null;
   } catch {
-    data = { error: text };
+    data = null;
   }
   if (!res.ok) return { ok: false, status: res.status, error: data?.error || `Ошибка ${res.status}` };
   return { ok: true, status: res.status, data };
@@ -104,16 +120,26 @@ function stopPresence() {
 // ---------------------------------------------------------------- WebSocket (только приём событий)
 let ws = null;
 let reconnectTimer = null;
+let offlineTimer = null;
 let backoff = 1000;
 let lastSeq = 0;
+let connState = 'connecting';
 let queue = Promise.resolve();
 
-function connectRealtime() {
+function setConnection(state) {
+  clearTimeout(offlineTimer);
+  if (state === connState) return;
+  connState = state;
+  send('holo:connection', { state, lastSeq });
+}
+
+function connectRealtime({ quiet = false } = {}) {
   disconnectRealtime();
   if (!auth.token) return;
-  send('holo:connection', { state: 'connecting' });
+  if (!quiet) setConnection('connecting');
   const url = auth.serverUrl.replace(/^http/, 'ws') + '/ws?token=' + encodeURIComponent(auth.token);
   const sock = new WebSocket(url, { handshakeTimeout: 10_000 });
+  const openedAt = Date.now();
   ws = sock;
 
   sock.on('message', (raw) => {
@@ -126,12 +152,24 @@ function connectRealtime() {
     queue = queue.then(() => handleMessage(msg)).catch(() => {});
   });
   sock.on('unexpected-response', (_req, res) => {
-    if (res.statusCode === 401) handleUnauthorized();
+    // 401 от нашего сервера — токен недействителен; 401 с HTML — это защита Vercel.
+    const html = String(res.headers['content-type'] || '').includes('text/html');
+    if (res.statusCode === 401 && !html) handleUnauthorized();
+    res.resume();
+    sock.terminate();
   });
   sock.on('close', () => {
     if (ws !== sock) return;
     ws = null;
-    send('holo:connection', { state: 'offline' });
+    // Vercel закрывает WebSocket по истечении времени функции (~5 мин) — это штатно:
+    // переподключаемся сразу и не показываем «офлайн», если связь вернулась за пару секунд.
+    if (connState === 'online' && Date.now() - openedAt > 30_000) {
+      backoff = 1000;
+      offlineTimer = setTimeout(() => setConnection('offline'), 8000);
+      reconnectTimer = setTimeout(() => connectRealtime({ quiet: true }), 150);
+      return;
+    }
+    setConnection('offline');
     scheduleReconnect();
   });
   sock.on('error', () => {});
@@ -142,7 +180,7 @@ async function handleMessage(msg) {
     backoff = 1000;
     if (lastSeq && msg.lastSeq > lastSeq) await catchUp();
     if (!lastSeq) lastSeq = msg.lastSeq;
-    send('holo:connection', { state: 'online', lastSeq });
+    setConnection('online');
     return;
   }
   if (msg.type === 'ephemeral') return send('holo:event', msg.event);
@@ -183,6 +221,7 @@ function scheduleReconnect() {
 
 function disconnectRealtime() {
   clearTimeout(reconnectTimer);
+  clearTimeout(offlineTimer);
   if (ws) {
     const s = ws;
     ws = null;
@@ -194,6 +233,7 @@ function disconnectRealtime() {
 // ---------------------------------------------------------------- сессия
 function startSession() {
   lastSeq = 0;
+  connState = 'offline'; // чтобы окно точно получило «подключение…» → «в сети»
   startPresence();
   connectRealtime();
 }
@@ -220,7 +260,8 @@ function registerIpc() {
       startSession();
       return { serverUrl: auth.serverUrl, user: r.data };
     }
-    return { serverUrl: auth.serverUrl, user: null, error: r.status === 401 ? null : r.error, offline: r.status === 0 };
+    // Токен не удаляем при сетевой ошибке: после восстановления связи вход не понадобится.
+    return { serverUrl: auth.serverUrl, user: null, error: r.status === 401 && !r.error?.includes('Vercel') ? null : r.error, offline: r.status === 0 };
   });
 
   ipcMain.handle('holo:login', async (_e, { serverUrl, login, password }) => {
