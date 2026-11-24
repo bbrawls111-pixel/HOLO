@@ -6,8 +6,9 @@ import { sweepPresence } from '../presence.js';
 import { allUsers, fileDto, meDto } from '../dto.js';
 import { storageMode } from '../storage.js';
 import { listChannels } from './chat.js';
+import { listBoards } from './boards.js';
 
-const ACTIVITY_TYPES = ['file.created', 'file.updated', 'file.moved', 'file.deleted', 'folder.created', 'folder.deleted', 'file.comment'];
+const ACTIVITY_TYPES = ['file.created', 'file.updated', 'file.moved', 'file.deleted', 'file.comment', 'board.created', 'board.deleted'];
 
 async function activity(limit, all = false) {
   const rows = all
@@ -19,7 +20,7 @@ async function activity(limit, all = false) {
 async function stats() {
   const [storage, files, messages, ops] = await Promise.all([
     one('SELECT COALESCE(SUM(size), 0)::bigint AS bytes FROM (SELECT DISTINCT storage_key, size FROM file_versions) s'),
-    one('SELECT COUNT(*)::int AS n FROM files WHERE NOT deleted'),
+    one("SELECT COUNT(*)::int AS n FROM files WHERE NOT deleted AND scope = 'library'"),
     one('SELECT COUNT(*)::int AS n FROM messages'),
     getOpsThisMonth(),
   ]);
@@ -38,11 +39,11 @@ export default function register(router) {
   // Один запрос при старте вместо десятка — экономит лимит операций.
   router.get('/api/bootstrap', async ({ user }) => {
     await sweepPresence();
-    const [users, channels, folders, files, act, st, seq] = await Promise.all([
+    const [users, channels, files, boards, act, st, seq] = await Promise.all([
       allUsers(),
       listChannels(),
-      q('SELECT path FROM folders ORDER BY path'),
-      q('SELECT * FROM files WHERE NOT deleted ORDER BY path'),
+      q("SELECT * FROM files WHERE NOT deleted AND scope = 'library' ORDER BY id DESC"),
+      listBoards(user.id),
       activity(30),
       stats(),
       lastSeq(),
@@ -51,8 +52,8 @@ export default function register(router) {
       me: meDto(user),
       users,
       channels,
-      folders: folders.map((r) => r.path),
       files: files.map(fileDto),
+      boards,
       activity: act,
       stats: st,
       lastSeq: seq,

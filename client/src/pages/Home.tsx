@@ -1,20 +1,21 @@
 import {
-  ArrowRight, BarChart3, BookOpen, ChevronRight, FolderOpen, Image, MessagesSquare, Network, Sparkles,
+  ArrowRight, BarChart3, BookOpen, ChevronRight, LayoutGrid, MessagesSquare, Network, Sparkles,
 } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, type CSSProperties } from 'react';
 import { ActivityItem } from '../components/ActivityItem';
 import { Avatar } from '../components/Avatar';
-import { navigate, refreshStats, setActiveChannel, useStore, type Page } from '../store';
+import { DM_CHANNEL, navigate, openChat, refreshStats, useStore } from '../store';
 import { cx, formatBytes, presenceText } from '../util';
+import { PROVIDER_IDS, PROVIDERS } from './AiPane';
 import styles from './Home.module.css';
 
-const QUICK: { page: Page; title: string; text: string; icon: typeof Image }[] = [
-  { page: 'resources', title: 'Ресурсы', text: 'Изображения, звуки, шрифты и ассеты', icon: Image },
-  { page: 'charts', title: 'Графики', text: 'Создание и просмотр графиков', icon: BarChart3 },
-  { page: 'structures', title: 'Структуры', text: 'Деревья, JSON, связи объектов', icon: Network },
-  { page: 'chat', title: 'Чат', text: 'Общение и обсуждение проекта', icon: MessagesSquare },
-  { page: 'ai', title: 'ИИ', text: 'ChatGPT, Gemini, Claude — по сессиям', icon: Sparkles },
-  { page: 'docs', title: 'Документация', text: 'Заметки, спецификации, TODO', icon: BookOpen },
+const QUICK: { go: () => void; title: string; text: string; icon: typeof LayoutGrid }[] = [
+  { go: () => navigate('library'), title: 'Библиотека', text: 'Изображения, звуки, шрифты и ассеты', icon: LayoutGrid },
+  { go: () => navigate('charts'), title: 'Графики', text: 'Баланс, прогрессия, статистика', icon: BarChart3 },
+  { go: () => navigate('structures'), title: 'Структуры', text: 'Деревья объектов и связей', icon: Network },
+  { go: () => openChat('dm'), title: 'Чат', text: 'Личка с напарником', icon: MessagesSquare },
+  { go: () => openChat('ai:chatgpt'), title: 'ИИ', text: 'ChatGPT, Gemini, Claude — по сессиям', icon: Sparkles },
+  { go: () => navigate('docs'), title: 'Документы', text: 'Личные и общие заметки', icon: BookOpen },
 ];
 
 export function Home() {
@@ -22,8 +23,7 @@ export function Home() {
   const me = useStore((s) => s.me)!;
   const activity = useStore((s) => s.activity);
   const stats = useStore((s) => s.stats);
-  const unread = useStore((s) => s.unread);
-  const channels = useStore((s) => s.channels);
+  const unread = useStore((s) => s.unread[DM_CHANNEL] || 0);
 
   useEffect(() => {
     refreshStats();
@@ -34,7 +34,7 @@ export function Home() {
   const dayBudget = stats ? Math.round(stats.opsLimit / 30) : 0;
 
   return (
-    <div className={styles.page}>
+    <div className={cx(styles.page, 'page-enter')}>
       <div className={styles.mainCol}>
         <section className={cx(styles.hero, 'card')}>
           <div className={styles.heroArt} aria-hidden>
@@ -47,12 +47,12 @@ export function Home() {
             <p>Dev workspace. For you and your partner.</p>
           </div>
           <div className={styles.heroActions}>
-            <button className={styles.heroBtn} onClick={() => navigate('resources')}>
-              <FolderOpen size={20} />
-              Открыть ресурсы
+            <button className={styles.heroBtn} onClick={() => navigate('library')}>
+              <LayoutGrid size={20} />
+              Открыть библиотеку
               <ChevronRight size={18} className={styles.chev} />
             </button>
-            <button className={styles.heroBtn} onClick={() => navigate('chat')}>
+            <button className={styles.heroBtn} onClick={() => openChat('dm')}>
               <MessagesSquare size={20} />
               Перейти в чат
               <ChevronRight size={18} className={styles.chev} />
@@ -64,9 +64,9 @@ export function Home() {
           <div className={styles.sectionHead}>
             <h2>Быстрый доступ</h2>
           </div>
-          <div className={styles.quick}>
-            {QUICK.map(({ page, title, text, icon: Icon }) => (
-              <button key={page} className={styles.tile} onClick={() => navigate(page)}>
+          <div className={cx(styles.quick, 'stagger')}>
+            {QUICK.map(({ go, title, text, icon: Icon }, i) => (
+              <button key={title} className={cx(styles.tile, 'lift')} style={{ '--i': i } as CSSProperties} onClick={go}>
                 <Icon size={26} strokeWidth={1.6} className={styles.tileIcon} />
                 <div>
                   <div className={styles.tileTitle}>{title}</div>
@@ -111,20 +111,19 @@ export function Home() {
         </section>
 
         <section className={cx('card', styles.side)}>
-          <div className="label">Каналы</div>
-          {channels.map((c) => (
-            <button
-              key={c.id}
-              className={styles.channel}
-              onClick={() => {
-                setActiveChannel(c.id);
-                navigate('chat');
-              }}
-            >
-              <span className="faint">#</span> {c.name}
-              {!!unread[c.id] && <span className={styles.badge}>{unread[c.id]}</span>}
-            </button>
-          ))}
+          <div className="label">Чаты</div>
+          <button className={styles.channel} onClick={() => openChat('dm')}>
+            <MessagesSquare size={15} className="faint" /> {partner?.nickname ?? 'Напарник'}
+            {unread > 0 && <span className={styles.badge}>{unread}</span>}
+          </button>
+          {PROVIDER_IDS.map((p) => {
+            const P = PROVIDERS[p];
+            return (
+              <button key={p} className={styles.channel} onClick={() => openChat(`ai:${p}`)}>
+                <P.icon size={15} style={{ color: P.color }} /> {P.name}
+              </button>
+            );
+          })}
         </section>
 
         {stats && (

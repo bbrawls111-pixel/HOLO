@@ -27,6 +27,25 @@ export function fileDto(row) {
     version: row.version,
     updatedBy: row.updated_by,
     updatedAt: row.updated_at,
+    scope: row.scope ?? 'library',
+    title: row.title ?? '',
+    description: row.description ?? '',
+  };
+}
+
+export function boardDto(row, withData = true) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    title: row.title,
+    data: withData ? JSON.parse(row.data) : undefined,
+    private: row.owner_id !== null && row.owner_id !== undefined,
+    ownerId: row.owner_id ?? null,
+    version: row.version,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    updatedBy: row.updated_by,
+    updatedAt: row.updated_at,
   };
 }
 

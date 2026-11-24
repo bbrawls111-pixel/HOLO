@@ -9,9 +9,10 @@ import authRoutes from './routes/auth.js';
 import fileRoutes from './routes/files.js';
 import chatRoutes from './routes/chat.js';
 import systemRoutes from './routes/system.js';
+import boardRoutes from './routes/boards.js';
 
 const router = createRouter();
-[authRoutes, fileRoutes, chatRoutes, systemRoutes].forEach((register) => register(router));
+[authRoutes, fileRoutes, chatRoutes, systemRoutes, boardRoutes].forEach((register) => register(router));
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');

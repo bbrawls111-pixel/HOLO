@@ -3,9 +3,14 @@ import { config } from '../config.js';
 import { HttpError, readJson, requireInt, requireString } from '../http.js';
 import { emit } from '../realtime.js';
 import { fileDto } from '../dto.js';
-import {
-  mimeFor, newStorageKey, normalizePath, openRead, splitPath, storageMode, storedSize, uploadGrant, writeLocal,
-} from '../storage.js';
+import { mimeFor, newStorageKey, openRead, storageMode, storedSize, uploadGrant, writeLocal } from '../storage.js';
+
+/*
+ * Файлы бывают двух видов:
+ *  library — общая библиотека (коллекция с названием и описанием), синхронизируется между участниками;
+ *  chat    — вложения сообщений: живут в мессенджере и в библиотеку не попадают,
+ *            пока их явно не сохранят туда.
+ */
 
 const getFile = async (id) => {
   const row = await one('SELECT * FROM files WHERE id = ? AND NOT deleted', id);
@@ -13,76 +18,33 @@ const getFile = async (id) => {
   return row;
 };
 
-/** Создаёт папку и её предков внутри транзакции. Возвращает пути новых папок. */
-async function ensureFolder(t, folder, userId) {
-  const created = [];
-  if (!folder) return created;
-  const parts = folder.split('/');
-  for (let i = 1; i <= parts.length; i++) {
-    const p = parts.slice(0, i).join('/');
-    const r = await t.q(
-      'INSERT INTO folders (path, created_by, created_at) VALUES (?, ?, ?) ON CONFLICT (path) DO NOTHING RETURNING path',
-      p,
-      userId,
-      Date.now(),
-    );
-    if (r.length) created.push(p);
-  }
-  return created;
-}
-
-const emitFolders = async (paths, userId) => {
-  for (const p of paths) await emit('folder.created', { path: p }, userId);
+const cleanName = (input) => {
+  const name = requireString(input, 'name', { max: 200 }).replace(/[\\/]/g, '_');
+  if (/[\x00-\x1f]/.test(name) || name === '.' || name === '..') throw new HttpError(400, 'Недопустимое имя файла');
+  return name;
 };
 
-const isUnder = (p, folder) => p === folder || p.startsWith(folder + '/');
+const optText = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
 export default function register(router) {
-  router.get('/api/tree', async () => ({
-    folders: (await q('SELECT path FROM folders ORDER BY path')).map((r) => r.path),
-    files: (await q('SELECT * FROM files WHERE NOT deleted ORDER BY path')).map(fileDto),
-  }));
-
-  router.post('/api/folders', async ({ req, user }) => {
-    const body = await readJson(req, config.maxJsonBytes);
-    const p = normalizePath(requireString(body.path, 'path', { max: 1000 }));
-    if (await one('SELECT 1 FROM files WHERE path = ? AND NOT deleted', p)) {
-      throw new HttpError(409, 'Уже есть файл с таким именем');
-    }
-    const created = await tx((t) => ensureFolder(t, p, user.id));
-    await emitFolders(created, user.id);
-    return { path: p };
-  });
-
-  router.delete('/api/folders', async ({ query, user }) => {
-    const p = normalizePath(query.get('path') || '');
-    const fileIds = await tx(async (t) => {
-      const files = (await t.q('SELECT id, folder FROM files WHERE NOT deleted')).filter((f) => isUnder(f.folder, p));
-      for (const f of files) await t.q('UPDATE files SET deleted = TRUE WHERE id = ?', f.id);
-      for (const row of await t.q('SELECT path FROM folders')) {
-        if (isUnder(row.path, p)) await t.q('DELETE FROM folders WHERE path = ?', row.path);
-      }
-      return files.map((f) => f.id);
-    });
-    await emit('folder.deleted', { path: p, fileIds }, user.id);
-    return { ok: true };
-  });
+  router.get('/api/library', async () =>
+    (await q("SELECT * FROM files WHERE NOT deleted AND scope = 'library' ORDER BY id DESC")).map(fileDto),
+  );
 
   // ---------------- Загрузка в 3 шага ----------------
   // 1) prepare: сервер выдаёт ключ и (для Vercel Blob) одноразовый токен загрузки;
   // 2) клиент заливает байты напрямую в хранилище;
-  // 3) commit: сервер проверяет объект и записывает новую версию файла.
+  // 3) commit: сервер проверяет объект и создаёт файл (или новую версию).
   router.post('/api/files/prepare', async ({ req, user }) => {
     const body = await readJson(req, config.maxJsonBytes);
-    const p = normalizePath(requireString(body.path, 'path', { max: 1000 }));
+    const name = cleanName(body.name);
     const size = Number(body.size) || 0;
     if (size > config.maxUploadBytes) {
       throw new HttpError(413, `Файл больше ${Math.round(config.maxUploadBytes / 1024 / 1024)} МБ`);
     }
-    if (await one('SELECT 1 FROM folders WHERE path = ?', p)) throw new HttpError(409, 'Это папка');
     const key = newStorageKey();
     await q('INSERT INTO uploads (key, user_id, created_at) VALUES (?, ?, ?)', key, user.id, Date.now());
-    return { path: p, ...(await uploadGrant(key, mimeFor(splitPath(p).name))) };
+    return { name, ...(await uploadGrant(key, mimeFor(name))) };
   });
 
   // Только локальный режим: приём байтов файла сервером.
@@ -98,39 +60,63 @@ export default function register(router) {
   router.post('/api/files/commit', async ({ req, user }) => {
     const body = await readJson(req, config.maxJsonBytes);
     const key = requireString(body.key, 'key', { max: 100 });
-    const p = normalizePath(requireString(body.path, 'path', { max: 1000 }));
+    const name = cleanName(body.name);
+    const scope = body.scope === 'chat' ? 'chat' : 'library';
+    const fileId = body.fileId ? requireInt(body.fileId, 'fileId') : null;
     const pending = await one('DELETE FROM uploads WHERE key = ? AND user_id = ? RETURNING key', key, user.id);
     if (!pending) throw new HttpError(403, 'Неизвестная загрузка');
     const size = await storedSize(key);
     if (size === null) throw new HttpError(400, 'Файл не дошёл до хранилища');
 
-    const { folder, name } = splitPath(p);
     const now = Date.now();
     const mime = mimeFor(name);
-    const { fileId, created, folders } = await tx(async (t) => {
-      const folders = await ensureFolder(t, folder, user.id);
-      const existing = await t.one('SELECT * FROM files WHERE path = ? AND NOT deleted FOR UPDATE', p);
-      let id;
-      let version = 1;
-      if (existing) {
-        id = existing.id;
-        version = existing.version + 1;
-        await t.q('UPDATE files SET size = ?, mime = ?, version = ?, updated_by = ?, updated_at = ? WHERE id = ?',
-          size, mime, version, user.id, now, id);
-      } else {
-        id = (await t.one(
-          'INSERT INTO files (path, folder, name, size, mime, version, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?) RETURNING id',
-          p, folder, name, size, mime, user.id, now,
-        )).id;
+    const id = await tx(async (t) => {
+      if (fileId) {
+        // Новая версия существующего файла библиотеки.
+        const f = await t.one("SELECT * FROM files WHERE id = ? AND NOT deleted AND scope = 'library' FOR UPDATE", fileId);
+        if (!f) throw new HttpError(404, 'Файл не найден');
+        const version = f.version + 1;
+        await t.q('UPDATE files SET name = ?, path = ?, size = ?, mime = ?, version = ?, updated_by = ?, updated_at = ? WHERE id = ?',
+          name, name, size, mime, version, user.id, now, f.id);
+        await t.q('INSERT INTO file_versions (file_id, version, storage_key, size, user_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+          f.id, version, key, size, user.id, now);
+        return f.id;
       }
+      const row = await t.one(
+        `INSERT INTO files (path, folder, name, size, mime, version, updated_by, updated_at, scope, title, description)
+         VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?) RETURNING id`,
+        scope === 'chat' ? `chat/${name}` : name, scope === 'chat' ? 'chat' : '', name, size, mime, user.id, now,
+        scope, optText(body.title, 200), optText(body.description, 4000),
+      );
       await t.q('INSERT INTO file_versions (file_id, version, storage_key, size, user_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-        id, version, key, size, user.id, now);
-      return { fileId: id, created: !existing, folders };
+        row.id, 1, key, size, user.id, now);
+      return row.id;
     });
 
-    await emitFolders(folders, user.id);
-    const file = fileDto(await getFile(fileId));
-    await emit(created ? 'file.created' : 'file.updated', { file }, user.id);
+    const file = fileDto(await getFile(id));
+    if (scope === 'library') await emit(fileId ? 'file.updated' : 'file.created', { file }, user.id);
+    return { file };
+  });
+
+  /** Сохранить вложение из чата (или любой файл) в общую библиотеку. */
+  router.post('/api/files/:id/to-library', async ({ req, params, user }) => {
+    const body = await readJson(req, config.maxJsonBytes);
+    const src = await getFile(requireInt(params.id, 'id'));
+    const ver = await one('SELECT * FROM file_versions WHERE file_id = ? AND version = ?', src.id, src.version);
+    if (!ver) throw new HttpError(404, 'Версия не найдена');
+    const now = Date.now();
+    const id = await tx(async (t) => {
+      const row = await t.one(
+        `INSERT INTO files (path, folder, name, size, mime, version, updated_by, updated_at, scope, title, description)
+         VALUES (?, '', ?, ?, ?, 1, ?, ?, 'library', ?, ?) RETURNING id`,
+        src.name, src.name, src.size, src.mime, user.id, now, optText(body.title, 200), optText(body.description, 4000),
+      );
+      await t.q('INSERT INTO file_versions (file_id, version, storage_key, size, user_id, created_at) VALUES (?, 1, ?, ?, ?, ?)',
+        row.id, ver.storage_key, ver.size, user.id, now);
+      return row.id;
+    });
+    const file = fileDto(await getFile(id));
+    await emit('file.created', { file }, user.id);
     return { file };
   });
 
@@ -178,31 +164,24 @@ export default function register(router) {
     return { file };
   });
 
+  // Название, описание, имя файла.
   router.patch('/api/files/:id', async ({ req, params, user }) => {
     const body = await readJson(req, config.maxJsonBytes);
     const file = await getFile(requireInt(params.id, 'id'));
-    const p = normalizePath(requireString(body.path, 'path', { max: 1000 }));
-    if (p === file.path) return { file: fileDto(file) };
-    if (await one('SELECT 1 FROM files WHERE path = ? AND NOT deleted', p)) {
-      throw new HttpError(409, 'Файл с таким путём уже существует');
-    }
-    const { folder, name } = splitPath(p);
-    const folders = await tx(async (t) => {
-      const created = await ensureFolder(t, folder, user.id);
-      await t.q('UPDATE files SET path = ?, folder = ?, name = ?, mime = ?, updated_by = ?, updated_at = ? WHERE id = ?',
-        p, folder, name, mimeFor(name), user.id, Date.now(), file.id);
-      return created;
-    });
-    await emitFolders(folders, user.id);
+    const name = body.name !== undefined ? cleanName(body.name) : file.name;
+    const title = body.title !== undefined ? optText(body.title, 200) : file.title;
+    const description = body.description !== undefined ? optText(body.description, 4000) : file.description;
+    await q('UPDATE files SET name = ?, path = ?, mime = ?, title = ?, description = ?, updated_by = ?, updated_at = ? WHERE id = ?',
+      name, file.scope === 'chat' ? `chat/${name}` : name, mimeFor(name), title, description, user.id, Date.now(), file.id);
     const dto = fileDto(await getFile(file.id));
-    await emit('file.moved', { file: dto, from: file.path }, user.id);
+    if (dto.scope === 'library') await emit('file.updated', { file: dto }, user.id);
     return { file: dto };
   });
 
   router.delete('/api/files/:id', async ({ params, user }) => {
     const file = await getFile(requireInt(params.id, 'id'));
     await q('UPDATE files SET deleted = TRUE WHERE id = ?', file.id);
-    await emit('file.deleted', { id: file.id, path: file.path }, user.id);
+    if (file.scope === 'library') await emit('file.deleted', { id: file.id, path: file.title || file.name }, user.id);
     return { ok: true };
   });
 
@@ -221,7 +200,7 @@ export default function register(router) {
     const { id } = await one('INSERT INTO file_comments (file_id, user_id, text, created_at) VALUES (?, ?, ?, ?) RETURNING id',
       file.id, user.id, text, now);
     const comment = { id, fileId: file.id, userId: user.id, text, createdAt: now };
-    await emit('file.comment', { comment, path: file.path }, user.id);
+    await emit('file.comment', { comment, path: file.title || file.name }, user.id);
     return comment;
   });
 }

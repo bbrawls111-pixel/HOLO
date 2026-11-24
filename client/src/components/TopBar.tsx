@@ -1,18 +1,17 @@
 import { ChevronRight, Search, Zap } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { navigate, openFile, useStore, type Page } from '../store';
+import { navigate, openChat, openFile, useStore, type Page } from '../store';
 import { cx } from '../util';
 import { Avatar } from './Avatar';
 import styles from './TopBar.module.css';
 
 const TITLES: Record<Page, string> = {
   home: 'Обзор',
-  resources: 'Ресурсы',
+  library: 'Библиотека',
   charts: 'Графики',
   structures: 'Структуры',
-  chat: 'Чат',
-  ai: 'ИИ',
-  docs: 'Документация',
+  chat: 'Чаты и ИИ',
+  docs: 'Документы',
   history: 'История',
   settings: 'Настройки',
 };
@@ -29,7 +28,7 @@ export function TopBar() {
     const q = query.trim().toLowerCase();
     if (!q) return [];
     return Object.values(files)
-      .filter((f) => f.path.toLowerCase().includes(q))
+      .filter((f) => `${f.title} ${f.description} ${f.name}`.toLowerCase().includes(q))
       .slice(0, 8);
   }, [query, files]);
 
@@ -58,7 +57,7 @@ export function TopBar() {
           <input
             ref={inputRef}
             value={query}
-            placeholder="Поиск по файлам  (Ctrl+K)"
+            placeholder="Поиск по библиотеке  (Ctrl+K)"
             onChange={(e) => {
               setQuery(e.target.value);
               setOpen(true);
@@ -86,8 +85,8 @@ export function TopBar() {
                       setQuery('');
                     }}
                   >
-                    <span className={styles.resultName}>{f.name}</span>
-                    <span className="faint">{f.folder || '/'}</span>
+                    <span className={styles.resultName}>{f.title || f.name}</span>
+                    <span className="faint">{f.title ? f.name : f.description.slice(0, 60)}</span>
                   </button>
                 ))
               ) : (
@@ -97,7 +96,7 @@ export function TopBar() {
           )}
         </div>
 
-        <button className="btn ghost icon" title="ИИ-помощник" onClick={() => navigate('ai')}>
+        <button className="btn ghost icon" title="ИИ-помощник" onClick={() => openChat('ai:chatgpt')}>
           <Zap size={18} />
         </button>
         {me && (

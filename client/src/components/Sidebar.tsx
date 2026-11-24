@@ -1,20 +1,17 @@
-import {
-  BarChart3, BookOpen, FolderKanban, History, Image, MessagesSquare, Network, Settings, Sparkles,
-} from 'lucide-react';
+import { BarChart3, BookOpen, FolderKanban, History, LayoutGrid, MessagesSquare, Network, Settings } from 'lucide-react';
 import { navigate, useStore, type Page } from '../store';
 import { cx, presenceText } from '../util';
 import { Avatar } from './Avatar';
 import { Logo } from './Logo';
 import styles from './Sidebar.module.css';
 
-const NAV: { page: Page; label: string; icon: typeof Image }[] = [
+const NAV: { page: Page; label: string; icon: typeof LayoutGrid }[] = [
   { page: 'home', label: 'Проект', icon: FolderKanban },
-  { page: 'resources', label: 'Ресурсы', icon: Image },
+  { page: 'chat', label: 'Чаты и ИИ', icon: MessagesSquare },
+  { page: 'library', label: 'Библиотека', icon: LayoutGrid },
+  { page: 'docs', label: 'Документы', icon: BookOpen },
   { page: 'charts', label: 'Графики', icon: BarChart3 },
   { page: 'structures', label: 'Структуры', icon: Network },
-  { page: 'chat', label: 'Чат', icon: MessagesSquare },
-  { page: 'ai', label: 'ИИ', icon: Sparkles },
-  { page: 'docs', label: 'Документация', icon: BookOpen },
   { page: 'history', label: 'История', icon: History },
   { page: 'settings', label: 'Настройки', icon: Settings },
 ];

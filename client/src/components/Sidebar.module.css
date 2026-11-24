@@ -115,6 +115,15 @@
 .navItem.active svg {
   color: var(--accent-2);
 }
+.navItem svg {
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.navItem:hover svg {
+  transform: scale(1.12) rotate(-4deg);
+}
+.navItem.active::before {
+  animation: popIn 0.25s ease;
+}
 
 .badge {
   margin-left: auto;

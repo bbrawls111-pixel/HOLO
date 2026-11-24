@@ -1,9 +1,15 @@
 import { create } from 'zustand';
 import { api } from './api';
-import type { Bootstrap, Channel, HoloEvent, HoloFile, Me, Message, Stats, User } from './types';
-import { isUnder } from './util';
+import notifySoundUrl from './assets/notify.mp3';
+import type { Board, Bootstrap, Channel, HoloEvent, HoloFile, Me, Message, Stats, User } from './types';
 
-export type Page = 'home' | 'resources' | 'charts' | 'structures' | 'chat' | 'ai' | 'docs' | 'history' | 'settings';
+export type Page = 'home' | 'library' | 'chat' | 'docs' | 'charts' | 'structures' | 'history' | 'settings';
+
+/** Личка двух разработчиков — канал «general». */
+export const DM_CHANNEL = 'general';
+
+export type AiProvider = 'chatgpt' | 'gemini' | 'claude' | 'fish';
+export type ChatTarget = 'dm' | `ai:${AiProvider}`;
 
 interface ChannelMessages {
   items: Message[];
@@ -17,15 +23,31 @@ interface Toast {
   kind: 'error' | 'info';
 }
 
-interface DialogState {
-  kind: 'prompt' | 'confirm';
+export interface LibraryForm {
   title: string;
-  message?: string;
-  value?: string;
-  confirmText?: string;
-  danger?: boolean;
-  resolve: (v: string | boolean | null) => void;
+  description: string;
 }
+
+type DialogState =
+  | {
+      kind: 'prompt' | 'confirm';
+      title: string;
+      message?: string;
+      value?: string;
+      confirmText?: string;
+      danger?: boolean;
+      resolve: (v: string | boolean | null) => void;
+    }
+  | {
+      kind: 'library';
+      title: string;
+      message?: string;
+      fileName: string;
+      preview?: string | null;
+      value: LibraryForm;
+      confirmText?: string;
+      resolve: (v: LibraryForm | null) => void;
+    };
 
 interface State {
   phase: 'boot' | 'login' | 'app';
@@ -37,15 +59,15 @@ interface State {
   channels: Channel[];
   messages: Record<string, ChannelMessages>;
   unread: Record<string, number>;
-  activeChannel: string;
-  folders: string[];
+  chatTarget: ChatTarget;
   files: Record<number, HoloFile>;
+  boards: Record<number, Board>;
   activity: HoloEvent[];
   stats: Stats | null;
   page: Page;
-  resourceFolder: string;
+  visited: Partial<Record<Page, boolean>>;
   selectedFileId: number | null;
-  search: string;
+  openBoard: Partial<Record<'chart' | 'tree' | 'doc', number | null>>;
   toasts: Toast[];
   dialog: DialogState | null;
 }
@@ -60,15 +82,15 @@ export const useStore = create<State>(() => ({
   channels: [],
   messages: {},
   unread: {},
-  activeChannel: 'general',
-  folders: [],
+  chatTarget: 'dm',
   files: {},
+  boards: {},
   activity: [],
   stats: null,
   page: 'home',
-  resourceFolder: '',
+  visited: { home: true },
   selectedFileId: null,
-  search: '',
+  openBoard: {},
   toasts: [],
   dialog: null,
 }));
@@ -76,7 +98,7 @@ export const useStore = create<State>(() => ({
 const set = useStore.setState;
 const get = useStore.getState;
 
-/** Шина для компонентов, которым нужно реагировать на конкретные события (комментарии, версии). */
+/** Шина для компонентов, которым нужно реагировать на конкретные события. */
 export const eventBus = new EventTarget();
 
 // ------------------------------------------------------------------ UI helpers
@@ -99,15 +121,55 @@ export function confirmAction(title: string, message: string, confirmText = 'У�
   );
 }
 
+/** «Сохранить в библиотеку?» — название и описание можно оставить пустыми. */
+export function askLibrary(opts: {
+  fileName: string;
+  title?: string;
+  message?: string;
+  preview?: string | null;
+  initial?: Partial<LibraryForm>;
+  confirmText?: string;
+}): Promise<LibraryForm | null> {
+  return new Promise((resolve) =>
+    set({
+      dialog: {
+        kind: 'library',
+        title: opts.title ?? 'Сохранить в библиотеку?',
+        message: opts.message,
+        fileName: opts.fileName,
+        preview: opts.preview,
+        value: { title: opts.initial?.title ?? '', description: opts.initial?.description ?? '' },
+        confirmText: opts.confirmText ?? 'Сохранить',
+        resolve,
+      },
+    }),
+  );
+}
+
 export function navigate(page: Page) {
   set((s) => ({
     page,
-    unread: page === 'chat' ? { ...s.unread, [s.activeChannel]: 0 } : s.unread,
+    visited: { ...s.visited, [page]: true },
+    unread: page === 'chat' && s.chatTarget === 'dm' ? { ...s.unread, [DM_CHANNEL]: 0 } : s.unread,
   }));
 }
 
-export function openFile(file: HoloFile) {
-  set({ page: 'resources', resourceFolder: file.folder, selectedFileId: file.id, search: '' });
+export function openChat(target: ChatTarget) {
+  set((s) => ({
+    chatTarget: target,
+    unread: target === 'dm' ? { ...s.unread, [DM_CHANNEL]: 0 } : s.unread,
+  }));
+  navigate('chat');
+}
+
+export function openFile(file: Pick<HoloFile, 'id'>) {
+  set({ selectedFileId: file.id });
+  navigate('library');
+}
+
+export function openBoardPage(kind: 'chart' | 'tree' | 'doc', id: number) {
+  set((s) => ({ openBoard: { ...s.openBoard, [kind]: id } }));
+  navigate(kind === 'chart' ? 'charts' : kind === 'tree' ? 'structures' : 'docs');
 }
 
 // ------------------------------------------------------------------ сессия
@@ -123,7 +185,7 @@ export async function boot() {
 }
 
 export function enterApp(me: Me, serverUrl: string) {
-  set({ me, serverUrl, phase: 'app', page: 'home' });
+  set({ me, serverUrl, phase: 'app', page: 'home', visited: { home: true } });
   loadAll();
 }
 
@@ -141,10 +203,11 @@ export function resetSession() {
     messages: {},
     unread: {},
     files: {},
-    folders: [],
+    boards: {},
     activity: [],
     stats: null,
     selectedFileId: null,
+    openBoard: {},
   });
 }
 
@@ -155,8 +218,8 @@ export async function loadAll() {
       me: b.me,
       users: Object.fromEntries(b.users.map((u) => [u.id, u])),
       channels: b.channels,
-      folders: b.folders,
       files: Object.fromEntries(b.files.map((f) => [f.id, f])),
+      boards: Object.fromEntries(b.boards.map((x) => [x.id, x])),
       activity: b.activity,
       stats: b.stats,
       messages: {},
@@ -182,6 +245,23 @@ export async function refreshStats() {
   } catch {
     /* не критично */
   }
+}
+
+export function upsertFile(f: HoloFile) {
+  if (f.scope !== 'library') return;
+  set((s) => ({ files: { ...s.files, [f.id]: f } }));
+}
+
+export function upsertBoard(b: Board) {
+  set((s) => ({ boards: { ...s.boards, [b.id]: b } }));
+}
+
+export function removeBoard(id: number) {
+  set((s) => {
+    const boards = { ...s.boards };
+    delete boards[id];
+    return { boards };
+  });
 }
 
 // ------------------------------------------------------------------ чат
@@ -219,10 +299,6 @@ export function addOwnMessage(m: Message) {
   upsertMessage(m);
 }
 
-export function setActiveChannel(id: string) {
-  set((s) => ({ activeChannel: id, unread: { ...s.unread, [id]: 0 } }));
-}
-
 // ------------------------------------------------------------------ события с сервера
 export function applyEvent(ev: HoloEvent) {
   const p = ev.payload;
@@ -235,7 +311,6 @@ export function applyEvent(ev: HoloEvent) {
     }
     case 'user.updated': {
       const prev = s.users[p.user.id];
-      // онлайн-статус не меняется событием профиля
       const user = { ...p.user, online: prev?.online ?? p.user.online, lastSeen: prev?.lastSeen ?? p.user.lastSeen };
       set({ users: { ...s.users, [user.id]: user } });
       if (s.me && s.me.id === user.id) set({ me: { ...s.me, ...user, online: s.me.online } });
@@ -244,12 +319,11 @@ export function applyEvent(ev: HoloEvent) {
     case 'message.created': {
       const m: Message = p.message;
       upsertMessage(m);
-      const viewing = s.page === 'chat' && s.activeChannel === m.channelId && document.hasFocus();
       if (m.userId !== s.me?.id) {
-        if (!(s.page === 'chat' && s.activeChannel === m.channelId)) {
-          set((st) => ({ unread: { ...st.unread, [m.channelId]: (st.unread[m.channelId] || 0) + 1 } }));
-        }
-        if (!viewing) notify(m);
+        playNotifySound();
+        const viewing = s.page === 'chat' && s.chatTarget === 'dm' && m.channelId === DM_CHANNEL;
+        if (!viewing) set((st) => ({ unread: { ...st.unread, [m.channelId]: (st.unread[m.channelId] || 0) + 1 } }));
+        if (!viewing || !document.hasFocus()) notify(m);
       }
       break;
     }
@@ -265,12 +339,10 @@ export function applyEvent(ev: HoloEvent) {
       break;
     case 'file.created':
     case 'file.updated':
-    case 'file.moved': {
-      const f: HoloFile = p.file;
-      set((st) => ({ files: { ...st.files, [f.id]: f } }));
+    case 'file.moved':
+      upsertFile(p.file);
       pushActivity(ev);
       break;
-    }
     case 'file.deleted':
       set((st) => {
         const files = { ...st.files };
@@ -279,23 +351,16 @@ export function applyEvent(ev: HoloEvent) {
       });
       pushActivity(ev);
       break;
-    case 'folder.created':
-      set((st) => (st.folders.includes(p.path) ? {} : { folders: [...st.folders, p.path].sort() }));
-      break;
-    case 'folder.deleted':
-      set((st) => {
-        const files = { ...st.files };
-        (p.fileIds as number[]).forEach((id) => delete files[id]);
-        return {
-          files,
-          folders: st.folders.filter((f) => !isUnder(f, p.path)),
-          resourceFolder: isUnder(st.resourceFolder, p.path) ? '' : st.resourceFolder,
-          selectedFileId: st.selectedFileId && files[st.selectedFileId] ? st.selectedFileId : null,
-        };
-      });
+    case 'file.comment':
       pushActivity(ev);
       break;
-    case 'file.comment':
+    case 'board.created':
+    case 'board.updated':
+      upsertBoard(p.board);
+      if (ev.type === 'board.created') pushActivity(ev);
+      break;
+    case 'board.deleted':
+      removeBoard(p.id);
       pushActivity(ev);
       break;
   }
@@ -307,17 +372,30 @@ function pushActivity(ev: HoloEvent) {
   set((s) => ({ activity: [ev, ...s.activity.filter((a) => a.seq !== ev.seq)].slice(0, 100) }));
 }
 
+// Звук входящего сообщения: громкость 30%.
+let notifyAudio: HTMLAudioElement | null = null;
+let lastSoundAt = 0;
+export function playNotifySound() {
+  const now = Date.now();
+  if (now - lastSoundAt < 700) return; // пачка сообщений — один звук
+  lastSoundAt = now;
+  try {
+    notifyAudio ??= new Audio(notifySoundUrl);
+    notifyAudio.volume = 0.3;
+    notifyAudio.currentTime = 0;
+    void notifyAudio.play().catch(() => {});
+  } catch {
+    /* звук недоступен */
+  }
+}
+
 function notify(m: Message) {
   const s = get();
-  if (document.hasFocus() && s.page === 'chat') return;
   const author = s.users[m.userId]?.nickname || 'Сообщение';
-  const channel = s.channels.find((c) => c.id === m.channelId)?.name || m.channelId;
   try {
-    const n = new Notification(`${author} · #${channel}`, { body: m.text || (m.file ? `📎 ${m.file.name}` : ''), silent: false });
-    n.onclick = () => {
-      setActiveChannel(m.channelId);
-      navigate('chat');
-    };
+    // Системный звук выключаем — играет свой, тише.
+    const n = new Notification(author, { body: m.text || (m.file ? `📎 ${m.file.name}` : ''), silent: true });
+    n.onclick = () => openChat('dm');
   } catch {
     /* уведомления недоступны */
   }
@@ -333,7 +411,7 @@ export function connectBridge() {
       if (state === 'offline') wasOffline = true;
       if (state === 'online' && wasOffline) {
         wasOffline = false;
-        refreshUsers(); // статусы присутствия не журналируются — обновим разом
+        refreshUsers();
       }
     }),
     window.holo.on('holo:resync', () => loadAll()),

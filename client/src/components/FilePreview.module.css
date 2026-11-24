@@ -1,0 +1,71 @@
+.box {
+  position: relative;
+  width: 100%;
+  min-height: 200px;
+  max-height: 340px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 14px;
+  background: repeating-conic-gradient(#12121c 0% 25%, #0e0e16 0% 50%) 50% / 18px 18px;
+}
+.large {
+  height: 100%;
+  max-height: none;
+  border-radius: 0;
+}
+
+.media {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  animation: popIn 0.3s ease both;
+}
+
+.audio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  color: #f0a3ff;
+  width: 80%;
+}
+.audio audio {
+  width: 100%;
+}
+
+.text {
+  align-self: stretch;
+  width: 100%;
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  background: var(--bg-2);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.font {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--bg-2);
+  align-self: stretch;
+  width: 100%;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-3);
+  font-size: 13px;
+  padding: 24px;
+  text-align: center;
+}

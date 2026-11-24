@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell, powerMonitor } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell, powerMonitor, session } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { Readable } = require('node:stream');
@@ -328,10 +328,10 @@ function registerIpc() {
 
   // Загрузка файла в 3 шага: prepare → байты напрямую в хранилище → commit.
   // На Vercel байты идут прямо в Vercel Blob по одноразовому токену, минуя функцию.
-  ipcMain.handle('holo:upload', async (_e, { localPath, data, remotePath }) => {
+  ipcMain.handle('holo:upload', async (_e, { localPath, data, name, scope, title, description, fileId }) => {
     try {
       const size = localPath ? (await fs.promises.stat(localPath)).size : data.byteLength;
-      const prep = await jsonRequest('POST', '/api/files/prepare', { path: remotePath, size });
+      const prep = await jsonRequest('POST', '/api/files/prepare', { name, size });
       if (!prep.ok) return prep;
       const grant = prep.data;
 
@@ -352,7 +352,14 @@ function registerIpc() {
         const r = await readResult(res);
         if (!r.ok) return r;
       }
-      return await jsonRequest('POST', '/api/files/commit', { key: grant.key, path: grant.path });
+      return await jsonRequest('POST', '/api/files/commit', {
+        key: grant.key,
+        name: grant.name,
+        scope: scope === 'chat' ? 'chat' : 'library',
+        title,
+        description,
+        fileId,
+      });
     } catch (err) {
       return { ok: false, status: 0, error: err?.message?.startsWith('Vercel Blob') ? err.message : networkError(err) };
     }
@@ -393,7 +400,7 @@ function registerIpc() {
       if (!res.ok) return await readResult(res);
       await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(filePath));
       shell.showItemInFolder(filePath);
-      return { ok: true };
+      return { ok: true, path: filePath };
     } catch (err) {
       return { ok: false, error: networkError(err) };
     }
@@ -407,6 +414,37 @@ function registerIpc() {
 // ---------------------------------------------------------------- окна
 const AI_PARTITION = /^persist:ai-[a-z0-9-]+$/;
 
+// Скачивания со страниц ИИ: файл сохраняется в «Загрузки/Holo», а окно спрашивает,
+// добавить ли его в общую библиотеку (с названием и описанием).
+const hookedSessions = new WeakSet();
+function hookAiDownloads(ses) {
+  if (hookedSessions.has(ses)) return;
+  hookedSessions.add(ses);
+  ses.on('will-download', (_event, item) => {
+    const dir = path.join(app.getPath('downloads'), 'Holo');
+    fs.mkdirSync(dir, { recursive: true });
+    const base = item.getFilename().replace(/[\\/:*?"<>|]/g, '_') || 'file';
+    const ext = path.extname(base);
+    let target = path.join(dir, base);
+    for (let i = 1; fs.existsSync(target); i++) target = path.join(dir, `${path.basename(base, ext)} (${i})${ext}`);
+    item.setSavePath(target);
+    item.once('done', (_e, state) => {
+      if (state === 'completed') send('holo:downloaded', { path: target, name: path.basename(target), size: item.getTotalBytes() });
+    });
+  });
+}
+
+app.on('session-created', (ses) => {
+  // Разделы ИИ создаются при первом открытии webview.
+  setImmediate(() => {
+    try {
+      if (ses.storagePath && /ai-/.test(ses.storagePath)) hookAiDownloads(ses);
+    } catch {
+      /* ignore */
+    }
+  });
+});
+
 app.on('web-contents-created', (_e, contents) => {
   // Встроенные страницы ИИ: только https и только изолированные разделы persist:ai-*.
   contents.on('will-attach-webview', (event, webPreferences, params) => {
@@ -414,7 +452,8 @@ app.on('web-contents-created', (_e, contents) => {
     webPreferences.nodeIntegration = false;
     webPreferences.contextIsolation = true;
     webPreferences.sandbox = true;
-    if (!AI_PARTITION.test(params.partition || '') || !/^https:\/\//.test(params.src || '')) event.preventDefault();
+    if (!AI_PARTITION.test(params.partition || '') || !/^https:\/\//.test(params.src || '')) return event.preventDefault();
+    hookAiDownloads(session.fromPartition(params.partition));
   });
 
   contents.setWindowOpenHandler(({ url }) => {

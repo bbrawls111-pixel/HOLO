@@ -24,6 +24,57 @@ export interface HoloFile {
   version: number;
   updatedBy: number | null;
   updatedAt: number;
+  scope: 'library' | 'chat';
+  title: string;
+  description: string;
+}
+
+export type BoardKind = 'chart' | 'tree' | 'doc';
+
+export interface ChartData {
+  type: 'line' | 'bar' | 'area' | 'pie' | 'radar' | 'scatter';
+  columns: string[]; // [подпись, серия1, серия2…]
+  rows: (string | number)[][];
+}
+
+export interface TreeNode {
+  id: string;
+  parentId: string | null;
+  label: string;
+  /** Подробное описание блока. */
+  note?: string;
+  category?: string;
+  color?: string;
+}
+
+export interface TreeCategory {
+  id: string;
+  name: string;
+  color: string;
+}
+
+export interface TreeData {
+  nodes: TreeNode[];
+  direction?: 'TB' | 'LR';
+  categories?: TreeCategory[];
+}
+
+export interface DocData {
+  text: string;
+}
+
+export interface Board<T = unknown> {
+  id: number;
+  kind: BoardKind;
+  title: string;
+  data: T;
+  private: boolean;
+  ownerId: number | null;
+  version: number;
+  createdBy: number | null;
+  createdAt: number;
+  updatedBy: number | null;
+  updatedAt: number;
 }
 
 export interface FileVersion {
@@ -79,8 +130,8 @@ export interface Bootstrap {
   me: Me;
   users: User[];
   channels: Channel[];
-  folders: string[];
   files: HoloFile[];
+  boards: Board[];
   activity: HoloEvent[];
   stats: Stats;
   lastSeq: number;
@@ -101,10 +152,18 @@ export interface HoloBridge {
   setupInfo(serverUrl: string): Promise<Result<{ open: boolean; users: number; maxUsers: number }>>;
   register(serverUrl: string, code: string, login: string, password: string): Promise<Result<Me>>;
   request<T>(method: string, path: string, body?: unknown): Promise<Result<T>>;
-  upload(opts: { localPath?: string | null; data?: ArrayBuffer; remotePath: string }): Promise<Result<{ file: HoloFile }>>;
+  upload(opts: {
+    localPath?: string | null;
+    data?: ArrayBuffer;
+    name: string;
+    scope?: 'library' | 'chat';
+    title?: string;
+    description?: string;
+    fileId?: number;
+  }): Promise<Result<{ file: HoloFile }>>;
   uploadAvatar(data: ArrayBuffer, mime: string): Promise<Result<Me>>;
   fetchBinary(path: string): Promise<{ ok: boolean; mime?: string; data?: Uint8Array; error?: string }>;
-  download(fileId: number, name: string, version?: number): Promise<Result<unknown>>;
+  download(fileId: number, name: string, version?: number): Promise<Result<unknown> & { path?: string }>;
   openExternal(url: string): Promise<void>;
   pathForFile(file: File): string | null;
   on(channel: string, handler: (payload: any) => void): () => void; // eslint-disable-line @typescript-eslint/no-explicit-any
