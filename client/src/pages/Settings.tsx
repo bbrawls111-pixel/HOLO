@@ -1,5 +1,6 @@
 import { LogOut } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { api } from '../api';
 import { ProfileEditor } from '../components/ProfileEditor';
 import { logout, refreshStats, useStore } from '../store';
 import { cx, formatBytes } from '../util';
@@ -11,8 +12,13 @@ export function Settings() {
   const stats = useStore((s) => s.stats);
   const connection = useStore((s) => s.connection);
 
+  const [turn, setTurn] = useState<boolean | null>(null);
+
   useEffect(() => {
     refreshStats();
+    api<{ turn: boolean }>('GET', '/api/call/ice')
+      .then((r) => setTurn(r.turn))
+      .catch(() => setTurn(false));
   }, []);
 
   return (
@@ -41,6 +47,31 @@ export function Settings() {
         <button className="btn danger" onClick={logout} style={{ alignSelf: 'flex-start' }}>
           <LogOut size={16} /> Выйти
         </button>
+      </section>
+
+      <section className={cx('card', styles.section)}>
+        <h2>Звонки</h2>
+        <dl className={styles.list}>
+          <dt>Соединение</dt>
+          <dd>Напрямую между компьютерами (WebRTC). Звук — Opus 96 кбит/с с шумо- и эхоподавлением.</dd>
+          <dt>Ретранслятор (TURN)</dt>
+          <dd>
+            {turn === null
+              ? 'Проверяем…'
+              : turn
+                ? 'Подключён — звонки пройдут даже через строгий NAT провайдера.'
+                : 'Не подключён. Обычно звонки идут напрямую; если у кого-то из вас не соединяется — добавьте TURN.'}
+          </dd>
+          {turn === false && (
+            <>
+              <dt>Как добавить</dt>
+              <dd>
+                Cloudflare → Realtime → TURN Server → создать ключ. В Vercel → holo → Settings → Environment Variables
+                добавить CF_TURN_KEY_ID и CF_TURN_KEY_API_TOKEN, затем Redeploy.
+              </dd>
+            </>
+          )}
+        </dl>
       </section>
 
       {stats && (

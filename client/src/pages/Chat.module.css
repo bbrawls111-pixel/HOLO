@@ -161,6 +161,14 @@
   background: rgba(15, 15, 24, 0.6);
   backdrop-filter: blur(10px);
 }
+.callBtns {
+  display: flex;
+  gap: 4px;
+}
+.callBtns button:not(:disabled):hover {
+  color: var(--green);
+}
+
 .dmName {
   font-weight: 650;
   font-size: 15px;

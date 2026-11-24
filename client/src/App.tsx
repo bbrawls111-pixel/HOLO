@@ -1,6 +1,8 @@
 import { Loader2 } from 'lucide-react';
 import { useEffect } from 'react';
 import { ImageViewer } from './components/ImageViewer';
+import { CallUI } from './components/CallUI';
+import { initCalls } from './calls';
 import { Overlays } from './components/Overlays';
 import { Sidebar } from './components/Sidebar';
 import { StatusBar } from './components/StatusBar';
@@ -30,6 +32,7 @@ export function App() {
 
   useEffect(() => {
     const off = connectBridge();
+    const offCalls = initCalls();
     boot();
     // Файл скачан со страницы ИИ → предложить сохранить его в библиотеку.
     const offDl = window.holo.on('holo:downloaded', async ({ path, name, size }: { path: string; name: string; size: number }) => {
@@ -44,6 +47,7 @@ export function App() {
     return () => {
       off();
       offDl();
+      offCalls();
     };
   }, []);
 
@@ -101,6 +105,7 @@ export function App() {
       </main>
       <StatusBar />
       <ImageViewer />
+      <CallUI />
       <Overlays />
     </div>
   );

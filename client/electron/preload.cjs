@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('holo', {
   capturedClear: (partition) => ipcRenderer.invoke('holo:capturedClear', { partition }),
   capturedFetch: (partition, id) => ipcRenderer.invoke('holo:capturedFetch', { partition, id }),
   saveFiles: (folder, files) => ipcRenderer.invoke('holo:saveFiles', { folder, files }),
+  screenSources: () => ipcRenderer.invoke('holo:screenSources'),
+  setScreenSource: (id) => ipcRenderer.invoke('holo:setScreenSource', { id }),
   pathForFile: (file) => {
     try {
       return webUtils.getPathForFile(file) || null;

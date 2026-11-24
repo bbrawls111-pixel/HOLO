@@ -11,9 +11,10 @@ import chatRoutes from './routes/chat.js';
 import systemRoutes from './routes/system.js';
 import boardRoutes from './routes/boards.js';
 import trashRoutes from './routes/trash.js';
+import callRoutes from './routes/calls.js';
 
 const router = createRouter();
-[authRoutes, fileRoutes, chatRoutes, systemRoutes, boardRoutes, trashRoutes].forEach((register) => register(router));
+[authRoutes, fileRoutes, chatRoutes, systemRoutes, boardRoutes, trashRoutes, callRoutes].forEach((register) => register(router));
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');

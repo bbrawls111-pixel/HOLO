@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell, powerMonitor, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell, powerMonitor, session, desktopCapturer } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { Readable } = require('node:stream');
@@ -756,10 +756,39 @@ function createWindow() {
   win.on('closed', () => (win = null));
 }
 
+// ---------------------------------------------------------------- показ экрана в звонке
+// Окно Holo само показывает выбор экрана/окна; выбранный источник запоминаем здесь
+// и отдаём его в getDisplayMedia (со звуком системы — loopback на Windows).
+let pendingScreenSource = null;
+
+function registerScreenShare() {
+  ipcMain.handle('holo:screenSources', async () => {
+    const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 320, height: 180 }, fetchWindowIcons: true });
+    return sources
+      .filter((s) => !/^Holo$/.test(s.name))
+      .map((s) => ({ id: s.id, name: s.name, screen: s.id.startsWith('screen:'), thumbnail: s.thumbnail.toDataURL(), icon: s.appIcon?.toDataURL() ?? null }));
+  });
+  ipcMain.handle('holo:setScreenSource', (_e, { id }) => {
+    pendingScreenSource = id;
+  });
+  session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+    try {
+      const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
+      const source = sources.find((s) => s.id === pendingScreenSource) ?? sources.find((s) => s.id.startsWith('screen:'));
+      pendingScreenSource = null;
+      if (!source) return callback({});
+      callback({ video: source, audio: source.id.startsWith('screen:') ? 'loopback' : undefined });
+    } catch {
+      callback({});
+    }
+  });
+}
+
 app.whenReady().then(() => {
   loadAuth();
   registerIpc();
   registerCaptureIpc();
+  registerScreenShare();
   createWindow();
 
   // После сна компьютера сразу сообщаем, что снова в сети.

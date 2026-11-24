@@ -1,4 +1,4 @@
-import { BookmarkPlus, Check, Download, File as FileIcon, Loader2, Paperclip, Pencil, SendHorizontal, Trash2, X } from 'lucide-react';
+import { BookmarkPlus, Check, Download, File as FileIcon, Loader2, Paperclip, Pencil, Phone, SendHorizontal, Trash2, Video, X } from 'lucide-react';
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { api, fileContentPath, useBinaryUrl } from '../api';
 import { Avatar } from '../components/Avatar';
@@ -11,6 +11,7 @@ import { cx, fileKind, formatBytes, formatTime, presenceText } from '../util';
 import { activeSession, AiAvatar, AiPane, PROVIDER_IDS, PROVIDERS, useAi } from './AiPane';
 import { AudioPlayer, MicButton, RecordingBar, useVoiceRecorder } from '../components/Voice';
 import { openImageViewer } from '../components/ImageViewer';
+import { startCall, useCall } from '../calls';
 import styles from './Chat.module.css';
 
 const URL_RE = /(https?:\/\/[^\s<]+)/g;
@@ -188,6 +189,7 @@ function DmPane({ visible }: { visible: boolean }) {
 
   const items = state?.items ?? [];
   const partner = Object.values(users).find((u) => u.id !== me.id);
+  const callPhase = useCall((s) => s.phase);
 
   useEffect(() => {
     loadMessages(DM_CHANNEL).catch((e) => toast(e.message));
@@ -298,10 +300,20 @@ function DmPane({ visible }: { visible: boolean }) {
     >
       <header className={styles.dmHead}>
         {partner && <Avatar user={partner} size={40} status />}
-        <div>
+        <div style={{ flex: 1 }}>
           <div className={styles.dmName}>{partner?.nickname ?? 'Напарник'}</div>
           <div className={cx(styles.dmStatus, partner?.online && styles.online)}>{partner ? presenceText(partner) : ''}</div>
         </div>
+        {partner && (
+          <div className={styles.callBtns}>
+            <button className="btn ghost icon" title="Позвонить" disabled={callPhase !== 'idle'} onClick={() => void startCall(false)}>
+              <Phone size={18} />
+            </button>
+            <button className="btn ghost icon" title="Видеозвонок" disabled={callPhase !== 'idle'} onClick={() => void startCall(true)}>
+              <Video size={19} />
+            </button>
+          </div>
+        )}
       </header>
 
       <div className={styles.messages} ref={scrollRef} onScroll={onScroll}>
