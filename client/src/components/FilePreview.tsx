@@ -1,4 +1,4 @@
-import { File as FileIcon, FileAudio, FileCode2, FileText, FileVideo, Image, Loader2, Type } from 'lucide-react';
+import { Box, File as FileIcon, FileAudio, FileCode2, FileText, FileVideo, Image, Loader2, Type } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { binaryText, binaryUrl, fileContentPath } from '../api';
 import type { HoloFile } from '../types';
@@ -12,10 +12,12 @@ export const KIND_ICON: Record<FileKind, typeof FileIcon> = {
   text: FileText,
   code: FileCode2,
   font: Type,
+  model: Box,
   other: FileIcon,
 };
 
 export const KIND_LABEL: Record<FileKind, string> = {
+  model: '3D-модель',
   image: 'Изображение',
   audio: 'Аудио',
   video: 'Видео',

@@ -94,6 +94,8 @@ const MIME = {
   js: 'text/javascript', ts: 'text/typescript', css: 'text/css', html: 'text/html',
   csv: 'text/csv', yaml: 'application/yaml', yml: 'application/yaml',
   ttf: 'font/ttf', otf: 'font/otf', woff: 'font/woff', woff2: 'font/woff2',
+  glb: 'model/gltf-binary', gltf: 'model/gltf+json', obj: 'model/obj', stl: 'model/stl', fbx: 'model/vnd.fbx',
+  usdz: 'model/vnd.usdz+zip', '3mf': 'model/3mf',
 };
 
 export function mimeFor(name) {

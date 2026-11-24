@@ -434,6 +434,127 @@ function hookAiDownloads(ses) {
   });
 }
 
+// ---------------------------------------------------------------- захват 3D-моделей (Meshy)
+// Страница Meshy сама загружает модель и текстуры для своего 3D-просмотра. Мы запоминаем
+// эти файлы и по запросу скачиваем их заново через ту же сессию — целиком, со всеми текстурами.
+const MODEL_RE = /\.(glb|gltf|fbx|obj|usdz|stl|3mf|blend|mtl)$/i;
+const TEX_RE = /\.(png|jpe?g|webp|ktx2|tga|exr)$/i;
+const TEX_HINT = /(texture|base_?colou?r|albedo|diffuse|normal|metallic|roughness|occlusion|emissive|_tex|basecolor|pbr)/i;
+const captures = new Map(); // partition -> Map(id -> item)
+const hookedCapture = new WeakSet();
+
+function header(headers, name) {
+  if (!headers) return '';
+  const key = Object.keys(headers).find((k) => k.toLowerCase() === name);
+  return key ? String(headers[key][0] ?? '') : '';
+}
+
+function captureGroup(u) {
+  // .../tasks/<id>/output/model.glb → группа по каталогу задачи
+  const parts = u.pathname.split('/').filter(Boolean);
+  parts.pop();
+  const task = parts.find((p) => /^[0-9a-f-]{16,}$/i.test(p)) || parts[parts.length - 1] || u.hostname;
+  return { key: u.hostname + '/' + parts.join('/'), label: task.slice(0, 12) };
+}
+
+function listCaptures(partition) {
+  return [...(captures.get(partition)?.values() ?? [])].sort((a, b) => b.at - a.at);
+}
+
+function hookCapture(ses, partition) {
+  if (!/^persist:ai-meshy-/.test(partition) || hookedCapture.has(ses)) return;
+  hookedCapture.add(ses);
+  ses.webRequest.onCompleted({ urls: ['https://*/*'] }, (d) => {
+    try {
+      if (d.method !== 'GET' || d.statusCode < 200 || d.statusCode >= 300) return;
+      const u = new URL(d.url);
+      const file = decodeURIComponent(u.pathname.split('/').pop() || '');
+      const ctype = header(d.responseHeaders, 'content-type');
+      const isModel = MODEL_RE.test(file) || /^model\//i.test(ctype);
+      const isTex = !isModel && TEX_RE.test(file) && TEX_HINT.test(u.pathname);
+      if (!isModel && !isTex) return;
+      if (!captures.has(partition)) captures.set(partition, new Map());
+      const map = captures.get(partition);
+      const id = u.origin + u.pathname; // без подписи в query — один файл не дублируется
+      const group = captureGroup(u);
+      map.set(id, {
+        id,
+        url: d.url,
+        name: file || 'model.glb',
+        kind: isModel ? 'model' : 'texture',
+        size: Number(header(d.responseHeaders, 'content-length')) || 0,
+        group: group.key,
+        groupLabel: group.label,
+        at: Date.now(),
+      });
+      send('holo:captured', { partition, items: listCaptures(partition) });
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
+async function fetchTo(ses, url, dest) {
+  const res = await ses.fetch(url);
+  if (!res.ok) throw new Error(`Не удалось скачать ${path.basename(dest)} (${res.status}). Обновите страницу модели и попробуйте снова.`);
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(dest));
+  return dest;
+}
+
+/** Для .gltf скачиваем и внешние зависимости (буферы, текстуры) с сохранением относительных путей. */
+async function fetchGltfDeps(ses, gltfUrl, gltfPath, saved) {
+  let json;
+  try {
+    json = JSON.parse(fs.readFileSync(gltfPath, 'utf8'));
+  } catch {
+    return;
+  }
+  const uris = [...(json.buffers ?? []), ...(json.images ?? [])].map((x) => x.uri).filter((x) => x && !x.startsWith('data:'));
+  for (const rel of new Set(uris)) {
+    const safe = decodeURIComponent(rel).replace(/\.\.[\\/]/g, '').replace(/^[\\/]+/, '');
+    const dest = path.join(path.dirname(gltfPath), safe);
+    if (!dest.startsWith(path.dirname(gltfPath))) continue;
+    saved.push(await fetchTo(ses, new URL(rel, gltfUrl).toString(), dest));
+  }
+}
+
+function registerCaptureIpc() {
+  ipcMain.handle('holo:capturedList', (_e, { partition }) => listCaptures(partition));
+  ipcMain.handle('holo:capturedClear', (_e, { partition }) => {
+    captures.delete(partition);
+    send('holo:captured', { partition, items: [] });
+  });
+  ipcMain.handle('holo:capturedSave', async (_e, { partition, id }) => {
+    if (!AI_PARTITION.test(partition)) return { ok: false, error: 'Недопустимая сессия' };
+    const item = captures.get(partition)?.get(id);
+    if (!item) return { ok: false, error: 'Файл больше не найден — откройте модель на странице ещё раз' };
+    const ses = session.fromPartition(partition);
+    const groupItems = listCaptures(partition).filter((x) => x.group === item.group);
+    const base = path.basename(item.name, path.extname(item.name));
+    const dir = path.join(app.getPath('downloads'), 'Holo', '3D', `${item.groupLabel}-${base}`.replace(/[\\/:*?"<>|]/g, '_'));
+    const saved = [];
+    try {
+      const main = await fetchTo(ses, item.url, path.join(dir, item.name));
+      saved.push(main);
+      if (/\.gltf$/i.test(item.name)) await fetchGltfDeps(ses, item.url, main, saved);
+      if (/\.obj$/i.test(item.name)) {
+        const mtl = groupItems.find((x) => /\.mtl$/i.test(x.name));
+        if (mtl) saved.push(await fetchTo(ses, mtl.url, path.join(dir, mtl.name)));
+      }
+      // Текстуры той же модели — рядом, в папке textures.
+      for (const t of groupItems.filter((x) => x.kind === 'texture')) {
+        const dest = path.join(dir, 'textures', t.name);
+        if (!saved.includes(dest)) saved.push(await fetchTo(ses, t.url, dest));
+      }
+      shell.showItemInFolder(main);
+      return { ok: true, path: main, dir, files: saved.length };
+    } catch (err) {
+      return { ok: false, error: err.message, files: saved.length };
+    }
+  });
+}
+
 app.on('session-created', (ses) => {
   // Разделы ИИ создаются при первом открытии webview.
   setImmediate(() => {
@@ -453,7 +574,9 @@ app.on('web-contents-created', (_e, contents) => {
     webPreferences.contextIsolation = true;
     webPreferences.sandbox = true;
     if (!AI_PARTITION.test(params.partition || '') || !/^https:\/\//.test(params.src || '')) return event.preventDefault();
-    hookAiDownloads(session.fromPartition(params.partition));
+    const ses = session.fromPartition(params.partition);
+    hookAiDownloads(ses);
+    hookCapture(ses, params.partition);
   });
 
   contents.setWindowOpenHandler(({ url }) => {
@@ -479,6 +602,7 @@ function createWindow() {
     minHeight: 700,
     backgroundColor: '#07070c',
     title: 'Holo',
+    icon: path.join(__dirname, '..', 'build', 'icon.png'),
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#07070c', symbolColor: '#9a9ab0', height: 72 },
     show: false,
@@ -500,6 +624,7 @@ function createWindow() {
 app.whenReady().then(() => {
   loadAuth();
   registerIpc();
+  registerCaptureIpc();
   createWindow();
 
   // После сна компьютера сразу сообщаем, что снова в сети.

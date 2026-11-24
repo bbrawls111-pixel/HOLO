@@ -6,7 +6,7 @@ import { ActivityItem } from '../components/ActivityItem';
 import { Avatar } from '../components/Avatar';
 import { DM_CHANNEL, navigate, openChat, refreshStats, useStore } from '../store';
 import { cx, formatBytes, presenceText } from '../util';
-import { PROVIDER_IDS, PROVIDERS } from './AiPane';
+import { AiAvatar, PROVIDER_IDS, PROVIDERS } from './AiPane';
 import styles from './Home.module.css';
 
 const QUICK: { go: () => void; title: string; text: string; icon: typeof LayoutGrid }[] = [
@@ -120,7 +120,7 @@ export function Home() {
             const P = PROVIDERS[p];
             return (
               <button key={p} className={styles.channel} onClick={() => openChat(`ai:${p}`)}>
-                <P.icon size={15} style={{ color: P.color }} /> {P.name}
+                <AiAvatar provider={p} size={20} /> {P.name}
               </button>
             );
           })}

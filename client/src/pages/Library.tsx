@@ -16,6 +16,7 @@ const FILTERS: { id: 'all' | FileKind | 'docs'; label: string }[] = [
   { id: 'image', label: 'Изображения' },
   { id: 'audio', label: 'Звуки' },
   { id: 'video', label: 'Видео' },
+  { id: 'model', label: '3D-модели' },
   { id: 'docs', label: 'Тексты и данные' },
   { id: 'font', label: 'Шрифты' },
   { id: 'other', label: 'Другое' },

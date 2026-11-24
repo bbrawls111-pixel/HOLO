@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld('holo', {
   fetchBinary: (path) => ipcRenderer.invoke('holo:fetchBinary', { path }),
   download: (fileId, name, version) => ipcRenderer.invoke('holo:download', { fileId, name, version }),
   openExternal: (url) => ipcRenderer.invoke('holo:openExternal', { url }),
+  capturedList: (partition) => ipcRenderer.invoke('holo:capturedList', { partition }),
+  capturedSave: (partition, id) => ipcRenderer.invoke('holo:capturedSave', { partition, id }),
+  capturedClear: (partition) => ipcRenderer.invoke('holo:capturedClear', { partition }),
   pathForFile: (file) => {
     try {
       return webUtils.getPathForFile(file) || null;
@@ -23,7 +26,7 @@ contextBridge.exposeInMainWorld('holo', {
     }
   },
   on: (channel, handler) => {
-    const allowed = ['holo:event', 'holo:connection', 'holo:resync', 'holo:loggedOut', 'holo:presence', 'holo:downloaded'];
+    const allowed = ['holo:event', 'holo:connection', 'holo:resync', 'holo:loggedOut', 'holo:presence', 'holo:downloaded', 'holo:captured'];
     if (!allowed.includes(channel)) return () => {};
     const listener = (_e, payload) => handler(payload);
     ipcRenderer.on(channel, listener);

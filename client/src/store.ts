@@ -8,7 +8,7 @@ export type Page = 'home' | 'library' | 'chat' | 'docs' | 'charts' | 'structures
 /** Личка двух разработчиков — канал «general». */
 export const DM_CHANNEL = 'general';
 
-export type AiProvider = 'chatgpt' | 'gemini' | 'claude' | 'fish';
+export type AiProvider = 'chatgpt' | 'gemini' | 'claude' | 'fish' | 'meshy';
 export type ChatTarget = 'dm' | `ai:${AiProvider}`;
 
 interface ChannelMessages {

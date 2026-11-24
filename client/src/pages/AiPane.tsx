@@ -1,17 +1,48 @@
 import {
-  ArrowLeft, ArrowRight, Asterisk, AudioLines, Bot, Check, ChevronDown, ExternalLink, Home, Pencil, Plus, RotateCw, Sparkles, Trash2, UserRound,
+  ArrowLeft, ArrowRight, Asterisk, AudioLines, Bot, Box, Check, ChevronDown, ExternalLink, Home, Pencil, Plus, RotateCw, Sparkles, Trash2, UserRound,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import logoChatgpt from '../assets/ai/chatgpt.png';
+import logoClaude from '../assets/ai/claude.png';
+import logoFish from '../assets/ai/fish.png';
+import logoGemini from '../assets/ai/gemini.png';
+import logoMeshy from '../assets/ai/meshy.png';
 import { askText, confirmAction, type AiProvider } from '../store';
+import { Capture3DPanel, useCaptured } from './Capture3D';
 import { cx } from '../util';
 import styles from './AiPane.module.css';
 
-export const PROVIDERS: Record<AiProvider, { name: string; url: string; color: string; icon: typeof Bot; tagline: string }> = {
-  chatgpt: { name: 'ChatGPT', url: 'https://chatgpt.com/', color: '#10a37f', icon: Bot, tagline: 'OpenAI' },
-  gemini: { name: 'Gemini', url: 'https://gemini.google.com/app', color: '#4f8df7', icon: Sparkles, tagline: 'Google' },
-  claude: { name: 'Claude', url: 'https://claude.ai/new', color: '#d97757', icon: Asterisk, tagline: 'Anthropic' },
-  fish: { name: 'Fish Audio', url: 'https://fish.audio/', color: '#0ea5e9', icon: AudioLines, tagline: 'Голос и озвучка' },
+interface ProviderInfo {
+  name: string;
+  url: string;
+  color: string;
+  icon: typeof Bot;
+  tagline: string;
+  logo: string;
+  logoBg: string;
+  logoPad: number; // отступ логотипа внутри круга, %
+}
+
+export const PROVIDERS: Record<AiProvider, ProviderInfo> = {
+  chatgpt: { name: 'ChatGPT', url: 'https://chatgpt.com/', color: '#10a37f', icon: Bot, tagline: 'OpenAI', logo: logoChatgpt, logoBg: '#ffffff', logoPad: 18 },
+  gemini: { name: 'Gemini', url: 'https://gemini.google.com/app', color: '#4f8df7', icon: Sparkles, tagline: 'Google', logo: logoGemini, logoBg: '#16162a', logoPad: 18 },
+  claude: { name: 'Claude', url: 'https://claude.ai/new', color: '#d97757', icon: Asterisk, tagline: 'Anthropic', logo: logoClaude, logoBg: '#ffffff', logoPad: 14 },
+  fish: { name: 'Fish Audio', url: 'https://fish.audio/', color: '#0ea5e9', icon: AudioLines, tagline: 'Голос и озвучка', logo: logoFish, logoBg: '#ffffff', logoPad: 6 },
+  meshy: { name: 'Meshy', url: 'https://www.meshy.ai/ru', color: '#a3e635', icon: Box, tagline: '3D-модели', logo: logoMeshy, logoBg: '#1b1240', logoPad: 0 },
 };
+
+/** Круглая аватарка ИИ с настоящим логотипом сервиса. */
+export function AiAvatar({ provider, size = 46 }: { provider: AiProvider; size?: number }) {
+  const P = PROVIDERS[provider];
+  return (
+    <span
+      className={styles.avatar}
+      style={{ width: size, height: size, background: P.logoBg, padding: `${(size * P.logoPad) / 100}px` }}
+    >
+      <img src={P.logo} alt={P.name} draggable={false} />
+    </span>
+  );
+}
 export const PROVIDER_IDS = Object.keys(PROVIDERS) as AiProvider[];
 
 export interface AiSession {
@@ -34,8 +65,9 @@ const DEFAULT: AiState = {
     { id: 'gemini-main', provider: 'gemini', name: 'Основная', account: 1 },
     { id: 'claude-main', provider: 'claude', name: 'Основная', account: 1 },
     { id: 'fish-main', provider: 'fish', name: 'Основная', account: 1 },
+    { id: 'meshy-main', provider: 'meshy', name: 'Основная', account: 1 },
   ],
-  active: { chatgpt: 'chatgpt-main', gemini: 'gemini-main', claude: 'claude-main', fish: 'fish-main' },
+  active: { chatgpt: 'chatgpt-main', gemini: 'gemini-main', claude: 'claude-main', fish: 'fish-main', meshy: 'meshy-main' },
 };
 
 function load(): AiState {
@@ -101,6 +133,7 @@ export function AiPane({ provider, visible }: { provider: AiProvider; visible: b
   const ai = useAi();
   const [opened, setOpened] = useState<Set<string>>(new Set());
   const [menu, setMenu] = useState(false);
+  const [show3d, setShow3d] = useState(false);
   const views = useRef<Record<string, WebviewEl | null>>({});
   const session = activeSession(ai, provider);
   const P = PROVIDERS[provider];
@@ -115,9 +148,7 @@ export function AiPane({ provider, visible }: { provider: AiProvider; visible: b
     <section className={cx(styles.pane, !visible && styles.hidden)}>
       <header className={styles.head}>
         <div className={styles.ident}>
-          <span className={styles.logo} style={{ background: P.color }}>
-            <P.icon size={20} />
-          </span>
+          <AiAvatar provider={provider} size={38} />
           <div>
             <div className={styles.name}>{P.name}</div>
             <div className={styles.sub}>
@@ -145,6 +176,7 @@ export function AiPane({ provider, visible }: { provider: AiProvider; visible: b
           >
             <ExternalLink size={15} />
           </button>
+          {provider === 'meshy' && session && <Capture3DButton partition={partitionOf(session)} open={show3d} onToggle={() => setShow3d((v) => !v)} />}
           <div className={styles.sessionWrap}>
             <button className={styles.sessionBtn} onClick={() => setMenu((m) => !m)}>
               <UserRound size={15} />
@@ -170,8 +202,20 @@ export function AiPane({ provider, visible }: { provider: AiProvider; visible: b
               allowpopups="true"
             />
           ))}
+        {provider === 'meshy' && session && show3d && <Capture3DPanel partition={partitionOf(session)} onClose={() => setShow3d(false)} />}
       </div>
     </section>
+  );
+}
+
+function Capture3DButton({ partition, open, onToggle }: { partition: string; open: boolean; onToggle: () => void }) {
+  const items = useCaptured(partition);
+  const models = items.filter((i) => i.kind === 'model').length;
+  return (
+    <button className={cx(styles.capBtn, open && styles.capBtnOn, models > 0 && styles.capBtnHas)} onClick={onToggle} title="Скачать 3D-модели с текстурами">
+      <Box size={15} /> 3D
+      {models > 0 && <span className={styles.capCount}>{models}</span>}
+    </button>
   );
 }
 

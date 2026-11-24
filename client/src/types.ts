@@ -145,6 +145,17 @@ export interface Result<T> {
   canceled?: boolean;
 }
 
+export interface Captured3D {
+  id: string;
+  url: string;
+  name: string;
+  kind: 'model' | 'texture';
+  size: number;
+  group: string;
+  groupLabel: string;
+  at: number;
+}
+
 export interface HoloBridge {
   getSession(): Promise<{ serverUrl: string; user: Me | null; error?: string | null; offline?: boolean }>;
   login(serverUrl: string, login: string, password: string): Promise<Result<Me>>;
@@ -165,6 +176,9 @@ export interface HoloBridge {
   fetchBinary(path: string): Promise<{ ok: boolean; mime?: string; data?: Uint8Array; error?: string }>;
   download(fileId: number, name: string, version?: number): Promise<Result<unknown> & { path?: string }>;
   openExternal(url: string): Promise<void>;
+  capturedList(partition: string): Promise<Captured3D[]>;
+  capturedSave(partition: string, id: string): Promise<Result<unknown> & { path?: string; dir?: string; files?: number }>;
+  capturedClear(partition: string): Promise<void>;
   pathForFile(file: File): string | null;
   on(channel: string, handler: (payload: any) => void): () => void; // eslint-disable-line @typescript-eslint/no-explicit-any
 }

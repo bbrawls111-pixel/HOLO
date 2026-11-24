@@ -6,3 +6,7 @@ server/data/
 .env
 .env.*
 .vercel
+
+release/
+release-build/
+.eb-cache/

@@ -8,7 +8,7 @@ import {
 import type { HoloFile, Message } from '../types';
 import { uploadOne } from '../upload';
 import { cx, fileKind, formatBytes, formatTime, presenceText } from '../util';
-import { activeSession, AiPane, PROVIDER_IDS, PROVIDERS, useAi } from './AiPane';
+import { activeSession, AiAvatar, AiPane, PROVIDER_IDS, PROVIDERS, useAi } from './AiPane';
 import styles from './Chat.module.css';
 
 const URL_RE = /(https?:\/\/[^\s<]+)/g;
@@ -142,9 +142,7 @@ function ChatList() {
             style={{ '--i': i } as CSSProperties}
             onClick={() => openChat(`ai:${p}`)}
           >
-            <span className={styles.aiLogo} style={{ background: P.color }}>
-              <P.icon size={22} />
-            </span>
+            <AiAvatar provider={p} size={46} />
             <div className={styles.rowText}>
               <div className={styles.rowTop}>
                 <span className={styles.rowName}>{P.name}</span>

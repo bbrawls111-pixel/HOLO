@@ -65,10 +65,11 @@ export const parentOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndex
 export const baseName = (p: string) => p.slice(p.lastIndexOf('/') + 1);
 export const isUnder = (p: string, folder: string) => !folder || p === folder || p.startsWith(folder + '/');
 
-export type FileKind = 'image' | 'audio' | 'video' | 'text' | 'font' | 'code' | 'other';
+export type FileKind = 'image' | 'audio' | 'video' | 'text' | 'font' | 'code' | 'model' | 'other';
 
 export function fileKind(f: Pick<HoloFile, 'mime' | 'name'>): FileKind {
   const ext = f.name.split('.').pop()?.toLowerCase() || '';
+  if (f.mime.startsWith('model/') || ['glb', 'gltf', 'fbx', 'obj', 'stl', 'usdz', '3mf', 'blend'].includes(ext)) return 'model';
   if (f.mime.startsWith('image/')) return 'image';
   if (f.mime.startsWith('audio/')) return 'audio';
   if (f.mime.startsWith('video/')) return 'video';
