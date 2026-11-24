@@ -6,6 +6,9 @@ contextBridge.exposeInMainWorld('holo', {
   getSession: () => ipcRenderer.invoke('holo:getSession'),
   login: (serverUrl, login, password) => ipcRenderer.invoke('holo:login', { serverUrl, login, password }),
   logout: () => ipcRenderer.invoke('holo:logout'),
+  setupInfo: (serverUrl) => ipcRenderer.invoke('holo:setupInfo', { serverUrl }),
+  register: (serverUrl, code, login, password) =>
+    ipcRenderer.invoke('holo:register', { serverUrl, code, login, password }),
   request: (method, path, body) => ipcRenderer.invoke('holo:request', { method, path, body }),
   upload: (opts) => ipcRenderer.invoke('holo:upload', opts),
   uploadAvatar: (data, mime) => ipcRenderer.invoke('holo:uploadAvatar', { data, mime }),

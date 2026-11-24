@@ -1,9 +1,16 @@
-import { one, q } from '../db.js';
+import crypto from 'node:crypto';
+import { one, q, tx } from '../db.js';
 import { config } from '../config.js';
 import { HttpError, readBody, readJson, requireString } from '../http.js';
 import {
-  bearerToken, checkLoginRate, clientIp, createSession, deleteSession, recordFailedLogin, verifyPassword,
+  bearerToken, checkLoginRate, clientIp, createSession, deleteSession, hashPassword, recordFailedLogin, verifyPassword,
 } from '../auth.js';
+
+const safeEqual = (a, b) => {
+  const x = crypto.createHash('sha256').update(a).digest();
+  const y = crypto.createHash('sha256').update(b).digest();
+  return crypto.timingSafeEqual(x, y);
+};
 import { markOffline, markOnline, sweepPresence } from '../presence.js';
 import { emit } from '../realtime.js';
 import { allUsers, meDto, userDto } from '../dto.js';
@@ -24,6 +31,48 @@ export default function register(router) {
         await recordFailedLogin(ip);
         throw new HttpError(401, 'Неверный логин или пароль');
       }
+      return { token: await createSession(user.id), user: meDto(user) };
+    },
+    { public: true },
+  );
+
+  // --- Регистрация по коду приглашения (пока аккаунтов меньше maxUsers) ----
+  router.get(
+    '/api/setup',
+    async () => {
+      const { n } = await one('SELECT COUNT(*)::int AS n FROM users');
+      return { open: !!config.inviteCode && n < config.maxUsers, users: n, maxUsers: config.maxUsers };
+    },
+    { public: true },
+  );
+
+  router.post(
+    '/api/setup/register',
+    async ({ req }) => {
+      const ip = clientIp(req);
+      if (!(await checkLoginRate(ip))) throw new HttpError(429, 'Слишком много попыток. Подождите 10 минут.');
+      const body = await readJson(req, config.maxJsonBytes);
+      const code = String(body.code || '');
+      if (!config.inviteCode || !safeEqual(code, config.inviteCode)) {
+        await recordFailedLogin(ip);
+        throw new HttpError(403, 'Неверный код приглашения');
+      }
+      const login = requireString(body.login, 'login', { min: 3, max: 32 });
+      if (!/^[A-Za-z0-9_.-]+$/.test(login)) throw new HttpError(400, 'Логин: латиница, цифры, _ . -');
+      const password = requireString(body.password, 'password', { min: 8, max: 256 });
+
+      const user = await tx(async (t) => {
+        await t.q('SELECT pg_advisory_xact_lock(724502)');
+        const { n } = await t.one('SELECT COUNT(*)::int AS n FROM users');
+        if (n >= config.maxUsers) throw new HttpError(403, 'Регистрация закрыта: оба аккаунта уже созданы');
+        if (await t.one('SELECT 1 FROM users WHERE lower(login) = lower(?)', login)) {
+          throw new HttpError(409, 'Такой логин уже занят');
+        }
+        return t.one(
+          'INSERT INTO users (login, pass_hash, nickname, created_at) VALUES (?, ?, ?, ?) RETURNING *',
+          login, hashPassword(password), login, Date.now(),
+        );
+      });
       return { token: await createSession(user.id), user: meDto(user) };
     },
     { public: true },

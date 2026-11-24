@@ -98,6 +98,8 @@ export interface HoloBridge {
   getSession(): Promise<{ serverUrl: string; user: Me | null; error?: string | null; offline?: boolean }>;
   login(serverUrl: string, login: string, password: string): Promise<Result<Me>>;
   logout(): Promise<Result<unknown>>;
+  setupInfo(serverUrl: string): Promise<Result<{ open: boolean; users: number; maxUsers: number }>>;
+  register(serverUrl: string, code: string, login: string, password: string): Promise<Result<Me>>;
   request<T>(method: string, path: string, body?: unknown): Promise<Result<T>>;
   upload(opts: { localPath?: string | null; data?: ArrayBuffer; remotePath: string }): Promise<Result<{ file: HoloFile }>>;
   uploadAvatar(data: ArrayBuffer, mime: string): Promise<Result<Me>>;

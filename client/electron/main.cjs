@@ -280,6 +280,34 @@ function registerIpc() {
     return { ok: true, data: r.data.user };
   });
 
+  // Регистрация по коду приглашения — пока на сервере меньше двух аккаунтов.
+  ipcMain.handle('holo:setupInfo', async (_e, { serverUrl }) => {
+    const url = String(serverUrl || '').trim().replace(/\/+$/, '');
+    if (!/^https?:\/\/[^\s]+$/.test(url)) return { ok: false };
+    try {
+      const res = await fetch(url + '/api/setup', { signal: AbortSignal.timeout(15_000) });
+      return await readResult(res);
+    } catch (err) {
+      return { ok: false, status: 0, error: networkError(err) };
+    }
+  });
+
+  ipcMain.handle('holo:register', async (_e, { serverUrl, code, login, password }) => {
+    const url = String(serverUrl || '').trim().replace(/\/+$/, '');
+    if (!/^https?:\/\/[^\s]+$/.test(url)) return { ok: false, error: 'Укажите адрес сервера' };
+    endSession();
+    auth.serverUrl = url;
+    const r = await jsonRequest('POST', '/api/setup/register', { code, login, password });
+    if (!r.ok) {
+      saveAuth();
+      return r;
+    }
+    auth.token = r.data.token;
+    saveAuth();
+    startSession();
+    return { ok: true, data: r.data.user };
+  });
+
   ipcMain.handle('holo:logout', async () => {
     await jsonRequest('POST', '/api/auth/logout', undefined, { timeout: 3000 });
     endSession();

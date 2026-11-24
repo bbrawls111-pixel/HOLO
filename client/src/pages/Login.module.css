@@ -61,6 +61,41 @@
   gap: 7px;
 }
 
+.tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+}
+.tabs button {
+  height: 32px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-2);
+  font-weight: 500;
+}
+.tabs button.tabOn {
+  background: var(--panel-3);
+  color: var(--text);
+}
+
+.withIcon {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.withIcon svg {
+  position: absolute;
+  left: 12px;
+}
+.withIcon .input {
+  padding-left: 36px;
+}
+
 .error {
   color: var(--red);
   font-size: 13px;
