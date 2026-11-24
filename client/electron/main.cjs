@@ -575,8 +575,15 @@ async function fetchObjDeps(ses, item, groupItems, objPath, saved) {
 // а не во встроенной странице. Окна входа Google открываются из него в том же профиле.
 // Куки общие, поэтому после закрытия окна встроенная страница уже авторизована.
 const loginWindows = new Map();
+const partitionBySession = new WeakMap();
+const GOOGLE_LOGIN_RE = /^https:\/\/accounts\.google\.com\//;
+
 function registerLoginWindow() {
-  ipcMain.handle('holo:openLoginWindow', (_e, { partition, url, title }) => {
+  ipcMain.handle('holo:openLoginWindow', (_e, opts) => openLoginWindow(opts));
+}
+
+function openLoginWindow({ partition, url, title }) {
+  {
     if (!AI_PARTITION.test(partition || '') || !/^https:\/\//.test(url || '')) return { ok: false };
     const existing = loginWindows.get(partition);
     if (existing && !existing.isDestroyed()) {
@@ -617,7 +624,7 @@ function registerLoginWindow() {
     });
     w.loadURL(url).catch(() => {});
     return { ok: true };
-  });
+  }
 }
 
 function registerCaptureIpc() {
@@ -707,6 +714,7 @@ app.on('web-contents-created', (_e, contents) => {
     webPreferences.sandbox = true;
     if (!AI_PARTITION.test(params.partition || '') || !/^https:\/\//.test(params.src || '')) return event.preventDefault();
     const ses = session.fromPartition(params.partition);
+    partitionBySession.set(ses, params.partition);
     hookAiDownloads(ses);
     hookCapture(ses, params.partition);
   });
@@ -715,6 +723,16 @@ app.on('web-contents-created', (_e, contents) => {
   const isAiContents = () => contents.getType() === 'webview' || hookedSessions.has(contents.session);
 
   contents.setWindowOpenHandler(({ url }) => {
+    // Google не пускает вход, начатый из встроенной страницы (webview). Поэтому окно входа Google
+    // из webview не открываем, а переносим весь вход в отдельное окно с тем же профилем.
+    if (contents.getType() === 'webview' && (GOOGLE_LOGIN_RE.test(url) || url === 'about:blank')) {
+      const partition = partitionBySession.get(contents.session);
+      if (partition) {
+        openLoginWindow({ partition, url: contents.getURL(), title: new URL(contents.getURL()).hostname });
+        send('holo:loginRedirected', { partition });
+        return { action: 'deny' };
+      }
+    }
     // Окна входа (OAuth) открываем внутри той же ИИ-сессии — тогда вход сохранится.
     // Некоторые сайты открывают окно входа как about:blank и потом ведут его на Google.
     if (isAiContents() && (/^https:\/\//.test(url) || url === 'about:blank')) {

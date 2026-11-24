@@ -8,7 +8,7 @@ import logoFish from '../assets/ai/fish.png';
 import logoGemini from '../assets/ai/gemini.png';
 import logoMeshy from '../assets/ai/meshy.png';
 import logoMixamo from '../assets/ai/mixamo.png';
-import { askText, confirmAction, type AiProvider } from '../store';
+import { askText, confirmAction, toast, type AiProvider } from '../store';
 import { Capture3DPanel, useCaptured } from './Capture3D';
 import { cx } from '../util';
 import styles from './AiPane.module.css';
@@ -161,6 +161,16 @@ export function AiPane({ provider, visible }: { provider: AiProvider; visible: b
         for (const s of ai.sessions) if (s.provider === provider && partitionOf(s) === partition) views.current[s.id]?.reload();
       }),
     [ai.sessions, provider],
+  );
+
+  // Google не пускает вход из встроенной страницы — Holo сам открыл отдельное окно.
+  useEffect(
+    () =>
+      window.holo.on('holo:loginRedirected', ({ partition }: { partition: string }) => {
+        if (visible && session && partitionOf(session) === partition)
+          toast('Вход через Google открыт в отдельном окне — нажмите там «Продолжить с Google». После входа закройте окно.', 'info');
+      }),
+    [visible, session],
   );
 
   return (

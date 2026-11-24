@@ -32,7 +32,7 @@ contextBridge.exposeInMainWorld('holo', {
     }
   },
   on: (channel, handler) => {
-    const allowed = ['holo:event', 'holo:connection', 'holo:resync', 'holo:loggedOut', 'holo:presence', 'holo:downloaded', 'holo:captured', 'holo:loginWindowClosed'];
+    const allowed = ['holo:event', 'holo:connection', 'holo:resync', 'holo:loggedOut', 'holo:presence', 'holo:downloaded', 'holo:captured', 'holo:loginWindowClosed', 'holo:loginRedirected'];
     if (!allowed.includes(channel)) return () => {};
     const listener = (_e, payload) => handler(payload);
     ipcRenderer.on(channel, listener);
