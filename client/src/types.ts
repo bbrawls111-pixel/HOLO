@@ -183,6 +183,8 @@ export interface HoloBridge {
   capturedSave(partition: string, id: string): Promise<Result<unknown> & { path?: string; dir?: string; files?: number }>;
   capturedClear(partition: string): Promise<void>;
   capturedFetch(partition: string, id: string): Promise<{ ok: boolean; name?: string; data?: Uint8Array; error?: string }>;
+  openLoginWindow(partition: string, url: string, title?: string): Promise<{ ok: boolean }>;
+  appVersion(): Promise<string>;
   screenSources(): Promise<{ id: string; name: string; screen: boolean; thumbnail: string; icon: string | null }[]>;
   setScreenSource(id: string): Promise<void>;
   saveFiles(folder: string, files: { name: string; data: Uint8Array }[]): Promise<{ ok: boolean; path?: string; dir?: string; files?: number; error?: string }>;

@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('holo', {
   capturedClear: (partition) => ipcRenderer.invoke('holo:capturedClear', { partition }),
   capturedFetch: (partition, id) => ipcRenderer.invoke('holo:capturedFetch', { partition, id }),
   saveFiles: (folder, files) => ipcRenderer.invoke('holo:saveFiles', { folder, files }),
+  openLoginWindow: (partition, url, title) => ipcRenderer.invoke('holo:openLoginWindow', { partition, url, title }),
+  appVersion: () => ipcRenderer.invoke('holo:appVersion'),
   screenSources: () => ipcRenderer.invoke('holo:screenSources'),
   setScreenSource: (id) => ipcRenderer.invoke('holo:setScreenSource', { id }),
   pathForFile: (file) => {
@@ -30,7 +32,7 @@ contextBridge.exposeInMainWorld('holo', {
     }
   },
   on: (channel, handler) => {
-    const allowed = ['holo:event', 'holo:connection', 'holo:resync', 'holo:loggedOut', 'holo:presence', 'holo:downloaded', 'holo:captured'];
+    const allowed = ['holo:event', 'holo:connection', 'holo:resync', 'holo:loggedOut', 'holo:presence', 'holo:downloaded', 'holo:captured', 'holo:loginWindowClosed'];
     if (!allowed.includes(channel)) return () => {};
     const listener = (_e, payload) => handler(payload);
     ipcRenderer.on(channel, listener);

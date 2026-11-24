@@ -570,6 +570,56 @@ async function fetchObjDeps(ses, item, groupItems, objPath, saved) {
   }
 }
 
+// ---------------------------------------------------------------- вход в отдельном окне
+// Как в коннекторах Mono AI: сайт открывается в обычном окне с тем же профилем (partition),
+// а не во встроенной странице. Окна входа Google открываются из него в том же профиле.
+// Куки общие, поэтому после закрытия окна встроенная страница уже авторизована.
+const loginWindows = new Map();
+function registerLoginWindow() {
+  ipcMain.handle('holo:openLoginWindow', (_e, { partition, url, title }) => {
+    if (!AI_PARTITION.test(partition || '') || !/^https:\/\//.test(url || '')) return { ok: false };
+    const existing = loginWindows.get(partition);
+    if (existing && !existing.isDestroyed()) {
+      existing.focus();
+      return { ok: true };
+    }
+    const ses = session.fromPartition(partition);
+    hookAiDownloads(ses);
+    const w = new BrowserWindow({
+      width: 1100,
+      height: 820,
+      title: `Вход — ${String(title || 'Holo').slice(0, 60)}`,
+      autoHideMenuBar: true,
+      backgroundColor: '#ffffff',
+      parent: win ?? undefined,
+      webPreferences: { partition, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
+    });
+    w.webContents.setUserAgent(PLAIN_UA);
+    w.webContents.setWindowOpenHandler(({ url: u }) =>
+      /^https:\/\//.test(u) || u === 'about:blank'
+        ? {
+            action: 'allow',
+            overrideBrowserWindowOptions: {
+              width: 520,
+              height: 720,
+              autoHideMenuBar: true,
+              parent: w,
+              webPreferences: { partition, contextIsolation: true, sandbox: true, nodeIntegration: false },
+            },
+          }
+        : { action: 'deny' },
+    );
+    w.webContents.on('did-create-window', (child) => child.webContents.setUserAgent(PLAIN_UA));
+    loginWindows.set(partition, w);
+    w.on('closed', () => {
+      loginWindows.delete(partition);
+      send('holo:loginWindowClosed', { partition });
+    });
+    w.loadURL(url).catch(() => {});
+    return { ok: true };
+  });
+}
+
 function registerCaptureIpc() {
   // Байты пойманной модели — для конвертации в другой формат в окне Holo.
   ipcMain.handle('holo:capturedFetch', async (_e, { partition, id }) => {
@@ -762,6 +812,8 @@ app.whenReady().then(() => {
   registerIpc();
   registerCaptureIpc();
   registerScreenShare();
+  registerLoginWindow();
+  ipcMain.handle('holo:appVersion', () => app.getVersion());
   createWindow();
 
   // После сна компьютера сразу сообщаем, что снова в сети.

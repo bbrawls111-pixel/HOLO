@@ -13,9 +13,11 @@ export function Settings() {
   const connection = useStore((s) => s.connection);
 
   const [turn, setTurn] = useState<boolean | null>(null);
+  const [version, setVersion] = useState<string | null>(null);
 
   useEffect(() => {
     refreshStats();
+    window.holo.appVersion().then(setVersion).catch(() => {});
     api<{ turn: boolean }>('GET', '/api/call/ice')
       .then((r) => setTurn(r.turn))
       .catch(() => setTurn(false));
@@ -32,6 +34,8 @@ export function Settings() {
       <section className={cx('card', styles.section)}>
         <h2>Аккаунт и сервер</h2>
         <dl className={styles.list}>
+          <dt>Версия Holo</dt>
+          <dd>{version ?? '…'}</dd>
           <dt>Логин</dt>
           <dd>{me.login}</dd>
           <dt>Сервер</dt>

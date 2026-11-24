@@ -1,5 +1,5 @@
 import {
-  ArrowLeft, ArrowRight, Asterisk, AudioLines, Bot, Box, Check, ChevronDown, ExternalLink, Home, Pencil, Plus, RotateCw, Sparkles, Trash2, UserRound,
+  ArrowLeft, ArrowRight, Asterisk, AudioLines, Bot, Box, LogIn, Check, ChevronDown, ExternalLink, Home, Pencil, Plus, RotateCw, Sparkles, Trash2, UserRound,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import logoChatgpt from '../assets/ai/chatgpt.png';
@@ -154,6 +154,15 @@ export function AiPane({ provider, visible }: { provider: AiProvider; visible: b
 
   const view = () => (session ? views.current[session.id] : null);
 
+  // Окно входа закрыли — перезагружаем страницы этого аккаунта, вход уже в общих куках.
+  useEffect(
+    () =>
+      window.holo.on('holo:loginWindowClosed', ({ partition }: { partition: string }) => {
+        for (const s of ai.sessions) if (s.provider === provider && partitionOf(s) === partition) views.current[s.id]?.reload();
+      }),
+    [ai.sessions, provider],
+  );
+
   return (
     <section className={cx(styles.pane, !visible && styles.hidden)}>
       <header className={styles.head}>
@@ -178,6 +187,13 @@ export function AiPane({ provider, visible }: { provider: AiProvider; visible: b
           </button>
           <button className="btn ghost sm icon" title="Новый чат" onClick={() => view()?.loadURL(P.url)}>
             <Home size={15} />
+          </button>
+          <button
+            className={cx('btn ghost sm', styles.loginBtn)}
+            title="Войти в отдельном окне — если вход через Google не пускает во встроенной странице"
+            onClick={() => session && window.holo.openLoginWindow(partitionOf(session), view()?.getURL() || P.url, P.name)}
+          >
+            <LogIn size={15} /> Войти
           </button>
           <button
             className="btn ghost sm icon"
