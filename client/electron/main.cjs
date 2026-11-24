@@ -421,49 +421,23 @@ const hookedSessions = new WeakSet();
 // Google не пускает во встроенные браузеры: проверяет User-Agent и Client Hints
 // (navigator.userAgentData и заголовки sec-ch-ua — у Electron в них нет марки «Google Chrome»).
 // Для страниц ИИ и их окон входа подменяем всё это через DevTools-протокол целиком и согласованно.
-const CHROME_MAJOR = process.versions.chrome.split('.')[0];
-const CHROME_FULL = process.versions.chrome;
-const CHROME_UA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_MAJOR}.0.0.0 Safari/537.36`;
-const CHROME_METADATA = {
-  brands: [
-    { brand: 'Google Chrome', version: CHROME_MAJOR },
-    { brand: 'Chromium', version: CHROME_MAJOR },
-    { brand: 'Not)A;Brand', version: '24' },
-  ],
-  fullVersionList: [
-    { brand: 'Google Chrome', version: CHROME_FULL },
-    { brand: 'Chromium', version: CHROME_FULL },
-    { brand: 'Not)A;Brand', version: '24.0.0.0' },
-  ],
-  fullVersion: CHROME_FULL,
-  platform: 'Windows',
-  platformVersion: '15.0.0',
-  architecture: 'x86',
-  model: '',
-  mobile: false,
-  bitness: '64',
-  wow64: false,
-};
+// Настоящий User-Agent этого Chromium, только без «Electron/…» и имени приложения.
+const PLAIN_UA = app.userAgentFallback.replace(/\s?Electron\/\S+/, '').replace(/\s?holo\/\S+/i, '');
 
-async function disguiseAsChrome(contents) {
+// Как в Mono Browser: обычный User-Agent Chrome без «Electron» и без подключения отладчика —
+// подключённый DevTools-протокол Google как раз и замечает.
+function disguiseAsChrome(contents) {
   try {
-    contents.setUserAgent(CHROME_UA);
-    if (!contents.debugger.isAttached()) contents.debugger.attach('1.3');
-    await contents.debugger.sendCommand('Emulation.setUserAgentOverride', {
-      userAgent: CHROME_UA,
-      acceptLanguage: 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-      platform: 'Win32',
-      userAgentMetadata: CHROME_METADATA,
-    });
+    contents.setUserAgent(PLAIN_UA);
   } catch {
-    /* contents уже закрыт или к нему подключены DevTools */
+    /* contents уже закрыт */
   }
 }
 
 function hookAiDownloads(ses) {
   if (hookedSessions.has(ses)) return;
   hookedSessions.add(ses);
-  ses.setUserAgent(CHROME_UA, 'ru-RU,ru,en-US,en');
+  ses.setUserAgent(PLAIN_UA, 'ru-RU,ru,en-US,en');
   ses.on('will-download', (_event, item) => {
     const dir = path.join(app.getPath('downloads'), 'Holo');
     fs.mkdirSync(dir, { recursive: true });
@@ -692,7 +666,8 @@ app.on('web-contents-created', (_e, contents) => {
 
   contents.setWindowOpenHandler(({ url }) => {
     // Окна входа (OAuth) открываем внутри той же ИИ-сессии — тогда вход сохранится.
-    if (isAiContents() && /^https:\/\//.test(url)) {
+    // Некоторые сайты открывают окно входа как about:blank и потом ведут его на Google.
+    if (isAiContents() && (/^https:\/\//.test(url) || url === 'about:blank')) {
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
@@ -711,12 +686,10 @@ app.on('web-contents-created', (_e, contents) => {
   // Страницы ИИ (webview) — «настоящий Chrome» с первой же загрузки.
   if (contents.getType() === 'webview') disguiseAsChrome(contents);
 
-  // Окна входа из window.open: подменяем и перезапускаем загрузку уже с нужной личностью
-  // (иначе первый документ окна наследует данные родителя).
-  contents.on('did-create-window', async (child, { url }) => {
-    if (!isAiContents()) return;
-    await disguiseAsChrome(child.webContents);
-    if (url && /^https:\/\//.test(url)) child.webContents.loadURL(url).catch(() => {});
+  // Окна входа из window.open получают тот же User-Agent (перезагрузка не нужна —
+  // она ломает окна, которые сайт сначала открывает как about:blank).
+  contents.on('did-create-window', (child) => {
+    if (isAiContents()) disguiseAsChrome(child.webContents);
   });
 
   // Главное окно Holo никуда не уходит со своей страницы (всплывающих окон ИИ это не касается).
