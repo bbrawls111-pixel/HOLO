@@ -151,3 +151,29 @@
   flex: 1;
   padding: 30px 16px;
 }
+
+/* Модель в просмотре зашифрована сайтом — подсказка «Скачать». */
+.locked {
+  display: flex;
+  gap: 10px;
+  margin: 10px 14px 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(250, 204, 21, 0.35);
+  background: rgba(250, 204, 21, 0.08);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.45;
+  animation: popIn 0.2s ease;
+}
+.locked svg {
+  flex: none;
+  margin-top: 2px;
+  color: #facc15;
+}
+.locked b {
+  display: block;
+  color: var(--text);
+  font-size: 12.5px;
+  margin-bottom: 2px;
+}

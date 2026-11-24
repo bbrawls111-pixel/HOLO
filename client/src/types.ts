@@ -152,7 +152,10 @@ export interface Captured3D {
   id: string;
   url: string;
   name: string;
-  kind: 'model' | 'texture';
+  /** locked — сайт отдал модель зашифрованной (Meshy .meshy), открыть её нельзя */
+  kind: 'model' | 'texture' | 'locked';
+  /** модель, скачанная кнопкой «Скачать» на сайте (лежит в «Загрузки/Holo») */
+  localPath?: string;
   size: number;
   group: string;
   groupLabel: string;

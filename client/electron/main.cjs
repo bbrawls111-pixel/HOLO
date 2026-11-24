@@ -448,7 +448,9 @@ function hookAiDownloads(ses) {
     for (let i = 1; fs.existsSync(target); i++) target = path.join(dir, `${path.basename(base, ext)} (${i})${ext}`);
     item.setSavePath(target);
     item.once('done', (_e, state) => {
-      if (state === 'completed') send('holo:downloaded', { path: target, name: path.basename(target), size: item.getTotalBytes() });
+      if (state !== 'completed') return;
+      send('holo:downloaded', { path: target, name: path.basename(target), size: item.getTotalBytes() });
+      captureDownloadedModel(ses, target, item.getTotalBytes(), item.getURL());
     });
   });
 }
@@ -476,6 +478,38 @@ function captureGroup(u) {
   return { key: u.hostname + '/' + parts.join('/'), label: task.slice(0, 12) };
 }
 
+/**
+ * Модель, скачанная кнопкой «Скачать» на сайте (Meshy, Mixamo), попадает в панель 3D:
+ * её можно сразу сконвертировать в другой формат и оптимизировать.
+ */
+const LOADABLE_RE = /\.(glb|gltf|fbx|obj|stl)$/i;
+function captureDownloadedModel(ses, filePath, size, sourceUrl) {
+  const partition = partitionBySession.get(ses);
+  if (!partition || !/^persist:ai-(meshy|mixamo)-/.test(partition) || !LOADABLE_RE.test(filePath)) return;
+  if (!captures.has(partition)) captures.set(partition, new Map());
+  const map = captures.get(partition);
+  // Ту же загрузку мог поймать и сетевой перехватчик — оставляем одну запись (локальный файл).
+  try {
+    const u = new URL(sourceUrl);
+    map.delete(u.origin + u.pathname);
+  } catch {
+    /* blob: / data: — дубля нет */
+  }
+  const id = 'file:' + filePath;
+  map.set(id, {
+    id,
+    url: '',
+    localPath: filePath,
+    name: path.basename(filePath),
+    kind: 'model',
+    size: size || fs.statSync(filePath).size,
+    group: 'downloads',
+    groupLabel: 'Скачано с сайта',
+    at: Date.now(),
+  });
+  send('holo:captured', { partition, items: listCaptures(partition) });
+}
+
 function listCaptures(partition) {
   return [...(captures.get(partition)?.values() ?? [])].sort((a, b) => b.at - a.at);
 }
@@ -489,9 +523,11 @@ function hookCapture(ses, partition) {
       const u = new URL(d.url);
       const file = decodeURIComponent(u.pathname.split('/').pop() || '');
       const ctype = header(d.responseHeaders, 'content-type');
-      const isModel = MODEL_RE.test(file) || /^model\//i.test(ctype);
-      const isTex = !isModel && TEX_RE.test(file) && TEX_HINT.test(u.pathname);
-      if (!isModel && !isTex) return;
+      // Meshy отдаёт модель для просмотра зашифрованной (.meshy) — её не открыть; подсказываем «Скачать».
+      const isLocked = /\.meshy$/i.test(file);
+      const isModel = !isLocked && (MODEL_RE.test(file) || /^model\//i.test(ctype));
+      const isTex = !isModel && !isLocked && TEX_RE.test(file) && TEX_HINT.test(u.pathname);
+      if (!isModel && !isTex && !isLocked) return;
       if (!captures.has(partition)) captures.set(partition, new Map());
       const map = captures.get(partition);
       const id = u.origin + u.pathname; // без подписи в query — один файл не дублируется
@@ -500,7 +536,7 @@ function hookCapture(ses, partition) {
         id,
         url: d.url,
         name: file || 'model.glb',
-        kind: isModel ? 'model' : 'texture',
+        kind: isLocked ? 'locked' : isModel ? 'model' : 'texture',
         size: Number(header(d.responseHeaders, 'content-length')) || 0,
         group: group.key,
         groupLabel: group.label,
@@ -667,7 +703,9 @@ function registerCaptureIpc() {
     if (!AI_PARTITION.test(partition)) return { ok: false, error: 'Недопустимая сессия' };
     const item = captures.get(partition)?.get(id);
     if (!item) return { ok: false, error: 'Файл больше не найден — откройте модель на странице ещё раз' };
+    if (item.kind === 'locked') return { ok: false, error: 'Эта модель зашифрована сайтом — нажмите «Скачать» на странице модели' };
     try {
+      if (item.localPath) return { ok: true, name: item.name, data: new Uint8Array(fs.readFileSync(item.localPath)) };
       const res = await session.fromPartition(partition).fetch(item.url);
       if (!res.ok) return { ok: false, error: `Не удалось скачать (${res.status}). Обновите страницу модели.` };
       return { ok: true, name: item.name, data: new Uint8Array(await res.arrayBuffer()) };
@@ -705,6 +743,12 @@ function registerCaptureIpc() {
     if (!AI_PARTITION.test(partition)) return { ok: false, error: 'Недопустимая сессия' };
     const item = captures.get(partition)?.get(id);
     if (!item) return { ok: false, error: 'Файл больше не найден — откройте модель на странице ещё раз' };
+    if (item.kind === 'locked') return { ok: false, error: 'Эта модель зашифрована сайтом — нажмите «Скачать» на странице модели' };
+    if (item.localPath) {
+      if (!fs.existsSync(item.localPath)) return { ok: false, error: 'Файл удалён из «Загрузки/Holo»' };
+      shell.showItemInFolder(item.localPath);
+      return { ok: true, path: item.localPath, dir: path.dirname(item.localPath), files: 1 };
+    }
     const ses = session.fromPartition(partition);
     const groupItems = listCaptures(partition).filter((x) => x.group === item.group);
     const base = path.basename(item.name, path.extname(item.name));

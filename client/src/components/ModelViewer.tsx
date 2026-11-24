@@ -1,4 +1,4 @@
-import { Camera, Download, Loader2, Pause, Play, RotateCw, Sun } from 'lucide-react';
+import { Camera, Download, Loader2, Pause, Play, RotateCw, Shrink, Sun } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type * as THREEns from 'three';
 import { fileContentPath } from '../api';
@@ -18,6 +18,15 @@ const FORMATS: { id: Fmt; label: string }[] = [
   { id: 'usdz', label: 'USDZ' },
 ];
 
+type OptLevel = 'off' | 'auto' | '100k' | '20k' | '5k';
+const OPT_OPTIONS: { id: OptLevel; label: string; hint: string }[] = [
+  { id: 'off', label: 'Без', hint: 'Исходная сетка' },
+  { id: 'auto', label: 'Авто', hint: 'До 50 000 треугольников — обычный игровой ассет' },
+  { id: '100k', label: '100k', hint: 'До 100 000 треугольников' },
+  { id: '20k', label: '20k', hint: 'До 20 000 треугольников' },
+  { id: '5k', label: '5k', hint: 'До 5 000 — мобильные игры, дальние LOD' },
+];
+
 /** 3D-просмотр модели из библиотеки: вращение, масштаб, свет, анимации, экспорт в другой формат. */
 export function ModelViewer({ file }: { file: HoloFile }) {
   const host = useRef<HTMLDivElement>(null);
@@ -31,6 +40,29 @@ export function ModelViewer({ file }: { file: HoloFile }) {
   const lights = useRef<THREEns.Light[]>([]);
   const [exporting, setExporting] = useState<Fmt | 'snap' | null>(null);
   const snapRef = useRef<(() => Promise<Uint8Array>) | null>(null);
+  const original = useRef<THREEns.Object3D | null>(null);
+  const swapRef = useRef<((o: THREEns.Object3D) => void) | null>(null);
+  const [opt, setOpt] = useState<OptLevel>('off');
+  const [optBusy, setOptBusy] = useState(false);
+  const [origTris, setOrigTris] = useState(0);
+
+  const applyOpt = async (level: OptLevel) => {
+    if (!original.current || !swapRef.current || optBusy) return;
+    setOptBusy(true);
+    try {
+      const m3d = await import('../three3d');
+      const target = m3d.OPT_LEVELS.find((o) => o.id === level)!.target;
+      const { object, before, after } = await m3d.optimizeModel(original.current, target);
+      swapRef.current(object);
+      setOpt(level);
+      setStats(m3d.modelStats(object));
+      if (level !== 'off' && after >= before) toast(`Модель уже меньше бюджета — ${before.toLocaleString('ru-RU')} треуг.`, 'info');
+    } catch (e) {
+      toast((e as Error).message);
+    } finally {
+      setOptBusy(false);
+    }
+  };
 
   const snapshot = async () => {
     if (!snapRef.current) return;
@@ -74,7 +106,10 @@ export function ModelViewer({ file }: { file: HoloFile }) {
         const model = await m3d.loadModel(buf, file.name);
         if (disposed) return;
         loaded.current = model;
-        setStats(m3d.modelStats(model.object));
+        const st = m3d.modelStats(model.object);
+        setStats(st);
+        setOrigTris(st.triangles);
+        setOpt('off');
 
         const el = host.current!;
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -112,8 +147,21 @@ export function ModelViewer({ file }: { file: HoloFile }) {
         controls.autoRotateSpeed = 1.2;
         controlsRef.current = controls;
 
-        const mixer = model.animations.length ? new THREE.AnimationMixer(obj) : null;
+        let mixer = model.animations.length ? new THREE.AnimationMixer(obj) : null;
         if (mixer) mixer.clipAction(model.animations[0]).play();
+        original.current = obj;
+        // Подмена показанной модели (после оптимизации) — на том же месте, с той же анимацией.
+        swapRef.current = (next) => {
+          const shown = loaded.current!.object;
+          if (next === shown) return;
+          next.position.copy(obj.position);
+          scene.remove(shown);
+          scene.add(next);
+          loaded.current = { object: next, animations: model.animations };
+          mixer?.stopAllAction();
+          mixer = model.animations.length ? new THREE.AnimationMixer(next) : null;
+          if (mixer) mixer.clipAction(model.animations[0]).play();
+        };
         const clock = new THREE.Clock();
 
         const ro = new ResizeObserver(() => {
@@ -228,9 +276,28 @@ export function ModelViewer({ file }: { file: HoloFile }) {
               </button>
             ))}
           </div>
+          <div className={styles.optimize}>
+            <span>
+              <Shrink size={13} /> Оптимизация
+            </span>
+            {OPT_OPTIONS.map((o) => (
+              <button
+                key={o.id}
+                className={cx(styles.fmt, opt === o.id && styles.fmtOn)}
+                title={o.hint}
+                disabled={optBusy}
+                onClick={() => applyOpt(o.id)}
+              >
+                {o.label}
+              </button>
+            ))}
+            {optBusy && <Loader2 size={13} className="spin" />}
+          </div>
           {stats && (
             <div className={styles.stats}>
-              {stats.meshes} мешей · {stats.triangles.toLocaleString('ru-RU')} треуг. · {stats.textures} текстур
+              {stats.meshes} мешей ·{' '}
+              {opt !== 'off' && origTris > stats.triangles ? `${origTris.toLocaleString('ru-RU')} → ` : ''}
+              {stats.triangles.toLocaleString('ru-RU')} треуг. · {stats.textures} текстур
               {loaded.current?.animations.length ? ` · анимаций: ${loaded.current.animations.length}` : ''}
             </div>
           )}

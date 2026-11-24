@@ -1,4 +1,4 @@
-import { BookmarkPlus, Box, Download, Image, Loader2, Trash2, X } from 'lucide-react';
+import { BookmarkPlus, Box, Download, Image, Loader2, Lock, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { askLibrary, toast } from '../store';
 import type { Captured3D } from '../types';
@@ -17,6 +17,16 @@ const FMT_OPTIONS: { id: Fmt; label: string; hint: string }[] = [
   { id: 'usdz', label: 'USDZ', hint: 'Apple / AR' },
 ];
 const FMT_KEY = 'holo.3d.format';
+const OPT_KEY = 'holo.3d.optimize';
+// Те же уровни, что в three3d.ts (сам модуль three грузится лениво, при скачивании).
+type OptLevel = 'off' | 'auto' | '100k' | '20k' | '5k';
+const OPT_OPTIONS: { id: OptLevel; label: string; hint: string }[] = [
+  { id: 'off', label: 'Без', hint: 'Сетка как есть' },
+  { id: 'auto', label: 'Авто', hint: 'До 50 000 треугольников — обычный игровой ассет' },
+  { id: '100k', label: '100k', hint: 'До 100 000 — герой / крупный план' },
+  { id: '20k', label: '20k', hint: 'До 20 000 — второстепенные объекты' },
+  { id: '5k', label: '5k', hint: 'До 5 000 — мобильные игры, дальние LOD' },
+];
 
 /** Подписка на файлы 3D-моделей, которые загрузила страница в этой сессии. */
 export function useCaptured(partition: string) {
@@ -37,8 +47,15 @@ export function useCaptured(partition: string) {
 
 const stem = (name: string) => name.replace(/\.[^.]+$/, '');
 
-/** Скачать модель в выбранном формате. Возвращает путь к основному файлу. */
-async function downloadAs(partition: string, item: Captured3D, fmt: Fmt): Promise<{ path: string; files: number }> {
+/** Скачать модель в выбранном формате (и с оптимизацией). Возвращает путь к основному файлу. */
+async function downloadAs(
+  partition: string,
+  item: Captured3D,
+  fmtIn: Fmt,
+  opt: OptLevel,
+): Promise<{ path: string; files: number; tris?: [number, number] }> {
+  // Оптимизация — это пересборка модели, поэтому «Исходник» тогда сохраняем как GLB.
+  const fmt: Fmt = fmtIn === 'original' && opt !== 'off' ? 'glb' : fmtIn;
   if (fmt === 'original') {
     const r = await window.holo.capturedSave(partition, item.id);
     if (!r.ok || !r.path) throw new Error(r.error || 'Не удалось скачать модель');
@@ -46,15 +63,18 @@ async function downloadAs(partition: string, item: Captured3D, fmt: Fmt): Promis
   }
   const src = await window.holo.capturedFetch(partition, item.id);
   if (!src.ok || !src.data) throw new Error(src.error || 'Не удалось получить модель');
-  const { loadModel, exportModel } = await import('../three3d');
+  const { loadModel, exportModel, optimizeModel, OPT_LEVELS } = await import('../three3d');
   const buf = src.data.buffer.slice(src.data.byteOffset, src.data.byteOffset + src.data.byteLength) as ArrayBuffer;
-  const { object, animations } = await loadModel(buf, item.name).catch((e) => {
+  const loaded = await loadModel(buf, item.name).catch((e) => {
     throw new Error(`Не удалось открыть ${item.name}: ${e.message}. Попробуйте «Исходник».`);
   });
-  const out = await exportModel(object, animations, fmt, stem(item.name));
-  const saved = await window.holo.saveFiles(`${item.groupLabel}-${stem(item.name)}-${fmt}`, out);
+  const target = OPT_LEVELS.find((o) => o.id === opt)?.target ?? Infinity;
+  const { object, before, after } = await optimizeModel(loaded.object, target);
+  const suffix = opt !== 'off' && after < before ? `-${opt}` : '';
+  const out = await exportModel(object, loaded.animations, fmt, stem(item.name) + suffix);
+  const saved = await window.holo.saveFiles(`${item.groupLabel}-${stem(item.name)}-${fmt}${suffix}`, out);
   if (!saved.ok || !saved.path) throw new Error(saved.error || 'Не удалось сохранить');
-  return { path: saved.path, files: saved.files ?? out.length };
+  return { path: saved.path, files: saved.files ?? out.length, tris: after < before ? [before, after] : undefined };
 }
 
 export function Capture3DPanel({ partition, onClose }: { partition: string; onClose: () => void }) {
@@ -68,6 +88,22 @@ export function Capture3DPanel({ partition, onClose }: { partition: string; onCl
     }
   });
 
+  const [opt, setOpt] = useState<OptLevel>(() => {
+    try {
+      return (localStorage.getItem(OPT_KEY) as OptLevel) || 'off';
+    } catch {
+      return 'off';
+    }
+  });
+  const pickOpt = (o: OptLevel) => {
+    setOpt(o);
+    try {
+      localStorage.setItem(OPT_KEY, o);
+    } catch {
+      /* не критично */
+    }
+  };
+
   const pickFmt = (f: Fmt) => {
     setFmt(f);
     try {
@@ -80,6 +116,7 @@ export function Capture3DPanel({ partition, onClose }: { partition: string; onCl
   const groups = useMemo(() => {
     const map = new Map<string, { label: string; models: Captured3D[]; textures: Captured3D[]; at: number }>();
     for (const it of items) {
+      if (it.kind === 'locked') continue;
       const g = map.get(it.group) ?? { label: it.groupLabel, models: [], textures: [], at: 0 };
       (it.kind === 'model' ? g.models : g.textures).push(it);
       g.at = Math.max(g.at, it.at);
@@ -88,12 +125,14 @@ export function Capture3DPanel({ partition, onClose }: { partition: string; onCl
     return [...map.values()].filter((g) => g.models.length).sort((a, b) => b.at - a.at);
   }, [items]);
   const looseTextures = items.filter((i) => i.kind === 'texture').length;
+  const locked = items.filter((i) => i.kind === 'locked');
 
   const save = async (item: Captured3D, toLibrary: boolean) => {
     setBusy(item.id + toLibrary);
     try {
-      const r = await downloadAs(partition, item, fmt);
-      toast(`Сохранено в «Загрузки/Holo/3D» — файлов: ${r.files}`, 'info');
+      const r = await downloadAs(partition, item, fmt, opt);
+      const tri = r.tris ? ` · треугольников ${r.tris[0].toLocaleString('ru-RU')} → ${r.tris[1].toLocaleString('ru-RU')}` : '';
+      toast(`Сохранено в «Загрузки/Holo/3D» — файлов: ${r.files}${tri}`, 'info');
       if (!toLibrary) return;
       const mainName = r.path.split(/[\\/]/).pop()!;
       const form = await askLibrary({
@@ -120,7 +159,7 @@ export function Capture3DPanel({ partition, onClose }: { partition: string; onCl
           <div className={styles.title}>
             <Box size={16} /> 3D-модели
           </div>
-          <div className={styles.sub}>Откройте модель на странице — она появится здесь</div>
+          <div className={styles.sub}>Откройте или скачайте модель на странице — она появится здесь</div>
         </div>
         <div className={styles.headBtns}>
           {items.length > 0 && (
@@ -144,7 +183,34 @@ export function Capture3DPanel({ partition, onClose }: { partition: string; onCl
           ))}
         </div>
         <div className={styles.fmtHint}>{FMT_OPTIONS.find((o) => o.id === fmt)?.hint}</div>
+        <div className={styles.formatsLabel} style={{ marginTop: 10 }}>
+          Оптимизация (меньше треугольников)
+        </div>
+        <div className={styles.formatChips}>
+          {OPT_OPTIONS.map((o) => (
+            <button key={o.id} className={cx(styles.fmt, opt === o.id && styles.fmtOn)} title={o.hint} onClick={() => pickOpt(o.id)}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <div className={styles.fmtHint}>
+          {OPT_OPTIONS.find((o) => o.id === opt)?.hint}
+          {opt !== 'off' && fmt === 'original' ? ' · сохранится как GLB' : ''}
+        </div>
       </div>
+
+      {locked.length > 0 && (
+        <div className={styles.locked}>
+          <Lock size={15} />
+          <div>
+            <b>Модель в просмотре зашифрована Meshy</b>
+            <div>
+              Сайт отдаёт её в своём закрытом формате (.meshy). Нажмите «Скачать» на странице модели — файл появится
+              здесь, и его можно будет сконвертировать и оптимизировать.
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className={styles.list}>
         {groups.map((g, gi) => (
@@ -187,7 +253,8 @@ export function Capture3DPanel({ partition, onClose }: { partition: string; onCl
             <Box size={36} strokeWidth={1.2} />
             <div>Пока ничего не поймано</div>
             <div className="faint" style={{ fontSize: 12 }}>
-              Откройте свою модель в просмотре 3D. Holo запомнит файлы модели и текстур, которые загрузит страница
+              Нажмите «Скачать» на странице модели (GLB, FBX, OBJ) — файл появится здесь. Модели, которые сайт
+              загружает открыто, Holo ловит и без скачивания
               {looseTextures ? ` · текстур без модели: ${looseTextures}` : ''}.
             </div>
           </div>

@@ -228,6 +228,102 @@ export async function exportModel(
   return exportObj(object, baseName);
 }
 
+// ------------------------------------------------------------------ оптимизация (меньше треугольников)
+export type OptLevel = 'off' | 'auto' | '100k' | '20k' | '5k';
+export const OPT_LEVELS: { id: OptLevel; label: string; hint: string; target: number }[] = [
+  { id: 'off', label: 'Без', hint: 'Сетка как есть', target: Infinity },
+  { id: 'auto', label: 'Авто', hint: 'До 50 000 треугольников — обычный игровой ассет', target: 50_000 },
+  { id: '100k', label: '100k', hint: 'До 100 000 — герой / крупный план', target: 100_000 },
+  { id: '20k', label: '20k', hint: 'До 20 000 — второстепенные объекты', target: 20_000 },
+  { id: '5k', label: '5k', hint: 'До 5 000 — мобильные игры, дальние LOD', target: 5_000 },
+];
+
+/** Убрать вершины, которые больше не используются ни одним треугольником. */
+function compactGeometry(geo: THREE.BufferGeometry, index: Uint32Array) {
+  const remap = new Int32Array(geo.getAttribute('position').count).fill(-1);
+  let used = 0;
+  for (let i = 0; i < index.length; i++) if (remap[index[i]] < 0) remap[index[i]] = used++;
+  const out = new THREE.BufferGeometry();
+  for (const [name, attr] of Object.entries(geo.attributes)) {
+    const a = attr as THREE.BufferAttribute;
+    const Ctor = (a.array as unknown as { constructor: new (n: number) => THREE.TypedArray }).constructor;
+    const next = new THREE.BufferAttribute(new Ctor(used * a.itemSize), a.itemSize, a.normalized);
+    for (let old = 0; old < remap.length; old++) {
+      const j = remap[old];
+      if (j < 0) continue;
+      for (let c = 0; c < a.itemSize; c++) next.setComponent(j, c, a.getComponent(old, c));
+    }
+    out.setAttribute(name, next);
+  }
+  const newIndex = new Uint32Array(index.length);
+  for (let i = 0; i < index.length; i++) newIndex[i] = remap[index[i]];
+  out.setIndex(new THREE.BufferAttribute(used > 65535 ? newIndex : new Uint16Array(newIndex), 1));
+  return out;
+}
+
+/**
+ * Уменьшить число треугольников до бюджета. Упрощается каждая группа материала отдельно,
+ * швы UV/нормалей сохраняются (meshoptimizer), вершины не двигаются — текстуры, скиннинг и
+ * анимации остаются рабочими. Исходная модель не меняется — возвращается копия.
+ */
+export async function optimizeModel(root: THREE.Object3D, target: number): Promise<{ object: THREE.Object3D; before: number; after: number }> {
+  const before = modelStats(root).triangles;
+  if (!Number.isFinite(target) || before <= target) return { object: root, before, after: before };
+  const [{ MeshoptSimplifier }, { mergeVertices }, SkeletonUtils] = await Promise.all([
+    import('meshoptimizer'),
+    import('three/examples/jsm/utils/BufferGeometryUtils.js'),
+    import('three/examples/jsm/utils/SkeletonUtils.js'),
+  ]);
+  await MeshoptSimplifier.ready;
+  const ratio = target / before;
+  const object = SkeletonUtils.clone(root);
+  object.userData = { ...root.userData };
+  let after = 0;
+  const meshes: THREE.Mesh[] = [];
+  object.traverse((o) => (o as THREE.Mesh).isMesh && meshes.push(o as THREE.Mesh));
+
+  for (const mesh of meshes) {
+    let geo = mesh.geometry.clone();
+    geo.morphAttributes = {};
+    // Без индекса каждый треугольник «сам по себе» — сначала склеиваем одинаковые вершины.
+    geo = mergeVertices(geo);
+    const pos = geo.getAttribute('position');
+    const positions = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      positions[i * 3] = pos.getX(i);
+      positions[i * 3 + 1] = pos.getY(i);
+      positions[i * 3 + 2] = pos.getZ(i);
+    }
+    const index = Uint32Array.from(geo.index!.array as ArrayLike<number>);
+    const groups = geo.groups.length ? geo.groups : [{ start: 0, count: index.length, materialIndex: 0 }];
+    const parts: Uint32Array[] = [];
+    const newGroups: { start: number; count: number; materialIndex: number }[] = [];
+    let offset = 0;
+    for (const g of groups) {
+      const slice = index.slice(g.start, Math.min(index.length, g.start + g.count));
+      const want = Math.max(3, Math.floor((slice.length / 3) * ratio) * 3);
+      // Ошибка до 5% размера модели: сильнее упрощать — уже заметно портить форму.
+      const [simplified] = MeshoptSimplifier.simplify(slice, positions, 3, want, 0.05);
+      parts.push(simplified);
+      newGroups.push({ start: offset, count: simplified.length, materialIndex: g.materialIndex ?? 0 });
+      offset += simplified.length;
+    }
+    const all = new Uint32Array(offset);
+    let p = 0;
+    for (const part of parts) {
+      all.set(part, p);
+      p += part.length;
+    }
+    const out = compactGeometry(geo, all);
+    if (geo.groups.length) for (const g of newGroups) out.addGroup(g.start, g.count, g.materialIndex);
+    out.computeBoundingBox();
+    out.computeBoundingSphere();
+    mesh.geometry = out;
+    after += all.length / 3;
+  }
+  return { object, before, after: Math.round(after) };
+}
+
 export function modelStats(object: THREE.Object3D) {
   let meshes = 0;
   let triangles = 0;
