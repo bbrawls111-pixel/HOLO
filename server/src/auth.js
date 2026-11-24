@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { db } from './db.js';
+import { one, q } from './db.js';
 
 export function hashPassword(password) {
   const salt = crypto.randomBytes(16);
@@ -17,27 +17,19 @@ export function verifyPassword(password, stored) {
 
 const tokenHash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
-export function createSession(userId) {
+export async function createSession(userId) {
   const token = crypto.randomBytes(32).toString('base64url');
-  db.prepare('INSERT INTO sessions (token_hash, user_id, created_at) VALUES (?, ?, ?)').run(
-    tokenHash(token),
-    userId,
-    Date.now(),
-  );
+  await q('INSERT INTO sessions (token_hash, user_id, created_at) VALUES (?, ?, ?)', tokenHash(token), userId, Date.now());
   return token;
 }
 
-export function deleteSession(token) {
-  if (token) db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash(token));
+export async function deleteSession(token) {
+  if (token) await q('DELETE FROM sessions WHERE token_hash = ?', tokenHash(token));
 }
 
-export function getUserByToken(token) {
+export async function getUserByToken(token) {
   if (!token) return null;
-  return (
-    db
-      .prepare('SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?')
-      .get(tokenHash(token)) ?? null
-  );
+  return one('SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?', tokenHash(token));
 }
 
 export function bearerToken(req) {
@@ -45,16 +37,19 @@ export function bearerToken(req) {
   return m ? m[1].trim() : null;
 }
 
-// Простая защита от перебора пароля: 10 попыток за 10 минут с одного IP.
-const attempts = new Map();
-export function checkLoginRate(ip) {
-  const now = Date.now();
-  const list = (attempts.get(ip) || []).filter((t) => now - t < 10 * 60 * 1000);
-  attempts.set(ip, list);
-  return list.length < 10;
+export function clientIp(req) {
+  return String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
 }
-export function recordFailedLogin(ip) {
-  const list = attempts.get(ip) || [];
-  list.push(Date.now());
-  attempts.set(ip, list);
+
+// Защита от перебора пароля: 10 неудачных попыток за 10 минут с одного IP.
+const WINDOW = 10 * 60 * 1000;
+
+export async function checkLoginRate(ip) {
+  const row = await one('SELECT COUNT(*)::int AS n FROM login_attempts WHERE ip = ? AND at > ?', ip, Date.now() - WINDOW);
+  return row.n < 10;
+}
+
+export async function recordFailedLogin(ip) {
+  await q('INSERT INTO login_attempts (ip, at) VALUES (?, ?)', ip, Date.now());
+  await q('DELETE FROM login_attempts WHERE at < ?', Date.now() - WINDOW);
 }

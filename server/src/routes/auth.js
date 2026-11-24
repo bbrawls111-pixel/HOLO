@@ -1,115 +1,106 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { db } from '../db.js';
+import { one, q } from '../db.js';
 import { config } from '../config.js';
 import { HttpError, readBody, readJson, requireString } from '../http.js';
 import {
-  bearerToken, checkLoginRate, createSession, deleteSession, recordFailedLogin, verifyPassword,
+  bearerToken, checkLoginRate, clientIp, createSession, deleteSession, recordFailedLogin, verifyPassword,
 } from '../auth.js';
-import { markOffline, markOnline } from '../presence.js';
+import { markOffline, markOnline, sweepPresence } from '../presence.js';
 import { emit } from '../realtime.js';
 import { allUsers, meDto, userDto } from '../dto.js';
 
-const AVATAR_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' };
+const AVATAR_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 
 export default function register(router) {
   router.post(
     '/api/auth/login',
     async ({ req }) => {
-      const ip = req.socket.remoteAddress || 'unknown';
-      if (!checkLoginRate(ip)) throw new HttpError(429, 'Слишком много попыток. Подождите 10 минут.');
+      const ip = clientIp(req);
+      if (!(await checkLoginRate(ip))) throw new HttpError(429, 'Слишком много попыток. Подождите 10 минут.');
       const body = await readJson(req, config.maxJsonBytes);
       const login = requireString(body.login, 'login', { max: 64 });
       const password = requireString(body.password, 'password', { max: 256 });
-      const user = db.prepare('SELECT * FROM users WHERE login = ?').get(login);
+      const user = await one('SELECT * FROM users WHERE lower(login) = lower(?)', login);
       if (!user || !verifyPassword(password, user.pass_hash)) {
-        recordFailedLogin(ip);
+        await recordFailedLogin(ip);
         throw new HttpError(401, 'Неверный логин или пароль');
       }
-      return { token: createSession(user.id), user: meDto(user) };
+      return { token: await createSession(user.id), user: meDto(user) };
     },
     { public: true },
   );
 
-  router.post('/api/auth/logout', ({ req, user }) => {
-    deleteSession(bearerToken(req));
-    markOffline(user.id);
+  router.post('/api/auth/logout', async ({ req, user }) => {
+    await deleteSession(bearerToken(req));
+    await markOffline(user.id);
     return { ok: true };
   });
 
   // --- Присутствие -------------------------------------------------------
-  // При входе клиент отправляет запрос → сервер показывает «онлайн».
-  // Дальше клиент повторяет запрос раз в 5 минут; сервер раз в 5 минут
-  // снимает онлайн с тех, кто не отметился.
-  router.post('/api/presence/online', ({ user }) => {
-    markOnline(user.id);
-    return { ok: true, intervalMs: config.presenceIntervalMs };
+  // При входе клиент шлёт запрос → сервер показывает «онлайн». Дальше раз в 5 минут.
+  // Этот же запрос проверяет остальных и возвращает актуальные статусы.
+  router.post('/api/presence/online', async ({ user }) => {
+    await markOnline(user.id);
+    await sweepPresence();
+    return { ok: true, intervalMs: config.presenceIntervalMs, users: await allUsers() };
   });
 
-  router.post('/api/presence/offline', ({ user }) => {
-    markOffline(user.id);
+  router.post('/api/presence/offline', async ({ user }) => {
+    await markOffline(user.id);
     return { ok: true };
   });
 
   // --- Профиль ------------------------------------------------------------
   router.get('/api/me', ({ user }) => meDto(user));
 
-  router.get('/api/users', () => allUsers());
+  router.get('/api/users', async () => {
+    await sweepPresence();
+    return allUsers();
+  });
 
   router.patch('/api/me', async ({ req, user }) => {
     const body = await readJson(req, config.maxJsonBytes);
     const nickname = requireString(body.nickname, 'nickname', { min: 2, max: 32 });
     if (/[\x00-\x1f]/.test(nickname)) throw new HttpError(400, 'Недопустимые символы в нике');
-    const taken = db
-      .prepare('SELECT id FROM users WHERE nickname = ? COLLATE NOCASE AND id != ?')
-      .get(nickname, user.id);
+    const taken = await one('SELECT id FROM users WHERE lower(nickname) = lower(?) AND id <> ?', nickname, user.id);
     if (taken) throw new HttpError(409, 'Этот ник уже занят');
-    db.prepare('UPDATE users SET nickname = ?, setup_done = 1 WHERE id = ?').run(nickname, user.id);
+    await q('UPDATE users SET nickname = ?, setup_done = TRUE WHERE id = ?', nickname, user.id);
     return publishUser(user.id);
   });
 
   router.post('/api/me/avatar', async ({ req, user }) => {
     const mime = String(req.headers['content-type'] || '').split(';')[0].trim();
-    const ext = AVATAR_TYPES[mime];
-    if (!ext) throw new HttpError(415, 'Аватар: PNG, JPG, WEBP или GIF');
+    if (!AVATAR_TYPES.includes(mime)) throw new HttpError(415, 'Аватар: PNG, JPG, WEBP или GIF');
     const data = await readBody(req, config.maxAvatarBytes);
     if (!data.length) throw new HttpError(400, 'Пустой файл');
-    removeAvatarFiles(user.id);
-    fs.writeFileSync(path.join(config.avatarDir, `${user.id}.${ext}`), data);
-    db.prepare('UPDATE users SET avatar_mime = ?, avatar_version = avatar_version + 1 WHERE id = ?').run(
+    await q(
+      'UPDATE users SET avatar = ?, avatar_mime = ?, avatar_version = avatar_version + 1 WHERE id = ?',
+      data,
       mime,
       user.id,
     );
     return publishUser(user.id);
   });
 
-  router.delete('/api/me/avatar', ({ user }) => {
-    removeAvatarFiles(user.id);
-    db.prepare('UPDATE users SET avatar_mime = NULL, avatar_version = avatar_version + 1 WHERE id = ?').run(
-      user.id,
-    );
+  router.delete('/api/me/avatar', async ({ user }) => {
+    await q('UPDATE users SET avatar = NULL, avatar_mime = NULL, avatar_version = avatar_version + 1 WHERE id = ?', user.id);
     return publishUser(user.id);
   });
 
-  router.get('/api/users/:id/avatar', ({ params, res }) => {
-    const row = db.prepare('SELECT id, avatar_mime FROM users WHERE id = ?').get(Number(params.id));
-    if (!row?.avatar_mime) throw new HttpError(404, 'Нет аватара');
-    const file = path.join(config.avatarDir, `${row.id}.${AVATAR_TYPES[row.avatar_mime]}`);
-    if (!fs.existsSync(file)) throw new HttpError(404, 'Нет аватара');
-    const data = fs.readFileSync(file);
-    res.writeHead(200, { 'Content-Type': row.avatar_mime, 'Content-Length': data.length, 'Cache-Control': 'private, max-age=31536000' });
+  router.get('/api/users/:id/avatar', async ({ params, res }) => {
+    const row = await one('SELECT avatar, avatar_mime FROM users WHERE id = ?', Number(params.id) || 0);
+    if (!row?.avatar_mime || !row.avatar) throw new HttpError(404, 'Нет аватара');
+    const data = Buffer.from(row.avatar);
+    res.writeHead(200, {
+      'Content-Type': row.avatar_mime,
+      'Content-Length': data.length,
+      'Cache-Control': 'private, max-age=31536000',
+    });
     res.end(data);
   });
 }
 
-function removeAvatarFiles(userId) {
-  for (const ext of Object.values(AVATAR_TYPES)) {
-    fs.rmSync(path.join(config.avatarDir, `${userId}.${ext}`), { force: true });
-  }
-}
-
-function publishUser(userId) {
-  const row = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
-  emit('user.updated', { user: userDto(row) }, userId);
+async function publishUser(userId) {
+  const row = await one('SELECT * FROM users WHERE id = ?', userId);
+  await emit('user.updated', { user: userDto(row) }, userId);
   return meDto(row);
 }

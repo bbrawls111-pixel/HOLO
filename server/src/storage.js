@@ -1,40 +1,90 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { Transform } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { config } from './config.js';
 import { HttpError } from './http.js';
 
-/** Потоково сохраняет тело запроса в хранилище. Возвращает ключ, размер и sha256. */
-export async function storeStream(req, limit) {
-  const declared = Number(req.headers['content-length'] || 0);
-  if (declared > limit) throw new HttpError(413, 'Файл слишком большой');
+/*
+ * Хранилище файлов.
+ *  blob  — Vercel Blob (приватный). Клиент заливает файл напрямую в Blob по
+ *          одноразовому токену: тело не проходит через функцию (её лимит 4,5 МБ).
+ *  local — папка на диске, для локального запуска без Vercel.
+ */
+export const storageMode = () => (config.blobToken ? 'blob' : 'local');
 
-  const key = crypto.randomBytes(16).toString('hex');
-  const dest = path.join(config.storageDir, key);
-  const hash = crypto.createHash('sha256');
+export const newStorageKey = () => `files/${crypto.randomBytes(16).toString('hex')}`;
+
+const localPath = (key) => {
+  if (!/^files\/[0-9a-f]{32}$/.test(key)) throw new HttpError(400, 'Некорректный ключ');
+  return path.join(config.localStorageDir, key.slice(6));
+};
+
+/** Данные для загрузки: для Blob — клиентский токен, ограниченный ключом и размером. */
+export async function uploadGrant(key, contentType) {
+  if (storageMode() === 'local') return { mode: 'local', key };
+  const { generateClientTokenFromReadWriteToken } = await import('@vercel/blob/client');
+  const clientToken = await generateClientTokenFromReadWriteToken({
+    token: config.blobToken,
+    pathname: key,
+    maximumSizeInBytes: config.maxUploadBytes,
+    allowedContentTypes: [contentType, 'application/octet-stream'],
+    validUntil: Date.now() + 60 * 60 * 1000,
+    addRandomSuffix: false,
+  });
+  return { mode: 'blob', key, clientToken, access: 'private' };
+}
+
+/** Размер загруженного объекта или null, если его нет. */
+export async function storedSize(key) {
+  if (storageMode() === 'local') {
+    try {
+      return (await fs.promises.stat(localPath(key))).size;
+    } catch {
+      return null;
+    }
+  }
+  const { head } = await import('@vercel/blob');
+  try {
+    return (await head(key, { token: config.blobToken })).size;
+  } catch {
+    return null;
+  }
+}
+
+/** Поток для чтения объекта (Node Readable) или null. */
+export async function openRead(key) {
+  if (storageMode() === 'local') {
+    const p = localPath(key);
+    return fs.existsSync(p) ? fs.createReadStream(p) : null;
+  }
+  const { get } = await import('@vercel/blob');
+  const result = await get(key, { access: 'private', token: config.blobToken });
+  if (!result || result.statusCode !== 200 || !result.stream) return null;
+  return Readable.fromWeb(result.stream);
+}
+
+/** Локальный режим: приём тела загрузки на диск. */
+export async function writeLocal(key, req) {
+  const dest = localPath(key);
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
   let size = 0;
-
   const meter = new Transform({
     transform(chunk, _enc, cb) {
       size += chunk.length;
-      if (size > limit) return cb(new HttpError(413, 'Файл слишком большой'));
-      hash.update(chunk);
+      if (size > config.maxUploadBytes) return cb(new HttpError(413, 'Файл слишком большой'));
       cb(null, chunk);
     },
   });
-
   try {
     await pipeline(req, meter, fs.createWriteStream(dest));
   } catch (err) {
     await fs.promises.rm(dest, { force: true });
     throw err instanceof HttpError ? err : new HttpError(400, 'Загрузка прервана');
   }
-  return { key, size, sha256: hash.digest('hex') };
+  return size;
 }
-
-export const storagePath = (key) => path.join(config.storageDir, key);
 
 const MIME = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml',

@@ -1,5 +1,5 @@
-import { db } from './db.js';
-import { isOnline, presenceLastSeen } from './presence.js';
+import { q } from './db.js';
+import { isFresh } from './presence.js';
 
 export function userDto(row) {
   return {
@@ -7,8 +7,8 @@ export function userDto(row) {
     nickname: row.nickname,
     hasAvatar: !!row.avatar_mime,
     avatarVersion: row.avatar_version,
-    online: isOnline(row.id),
-    lastSeen: presenceLastSeen(row.id) ?? row.last_seen ?? null,
+    online: isFresh(row),
+    lastSeen: row.last_seen ?? null,
   };
 }
 
@@ -30,23 +30,30 @@ export function fileDto(row) {
   };
 }
 
-export function messageDto(row) {
-  let file = null;
-  if (row.file_id) {
-    const f = db.prepare('SELECT * FROM files WHERE id = ? AND deleted = 0').get(row.file_id);
-    if (f) file = fileDto(f);
+const USER_COLUMNS = 'id, login, nickname, setup_done, avatar_mime, avatar_version, online, last_seen';
+
+export async function allUsers() {
+  return (await q(`SELECT ${USER_COLUMNS} FROM users ORDER BY id`)).map(userDto);
+}
+
+export async function messagesDto(rows) {
+  const fileIds = [...new Set(rows.map((r) => r.file_id).filter(Boolean))];
+  const files = new Map();
+  if (fileIds.length) {
+    const found = await q('SELECT * FROM files WHERE id = ANY(?::int[]) AND NOT deleted', fileIds);
+    found.forEach((f) => files.set(f.id, fileDto(f)));
   }
-  return {
+  return rows.map((row) => ({
     id: row.id,
     channelId: row.channel_id,
     userId: row.user_id,
     text: row.text,
-    file,
+    file: row.file_id ? files.get(row.file_id) ?? null : null,
     createdAt: row.created_at,
     editedAt: row.edited_at,
-  };
+  }));
 }
 
-export function allUsers() {
-  return db.prepare('SELECT * FROM users ORDER BY id').all().map(userDto);
+export async function messageDto(row) {
+  return (await messagesDto([row]))[0];
 }

@@ -337,6 +337,9 @@ export function connectBridge() {
       }
     }),
     window.holo.on('holo:resync', () => loadAll()),
+    window.holo.on('holo:presence', (users: User[]) =>
+      set((s) => ({ users: { ...s.users, ...Object.fromEntries(users.map((u) => [u.id, u])) } })),
+    ),
     window.holo.on('holo:loggedOut', () => {
       resetSession();
       toast('Сессия завершена. Войдите снова.');

@@ -1,34 +1,33 @@
-import { db } from './db.js';
+import { one, q } from './db.js';
 import { config } from './config.js';
 import { emitEphemeral } from './realtime.js';
 
-// userId -> время последнего запроса присутствия
-const lastSeen = new Map();
+/*
+ * Присутствие без фонового процесса (на Vercel его нет):
+ *  - при входе клиент шлёт «я в сети» → online = true;
+ *  - дальше клиент повторяет запрос раз в 5 минут;
+ *  - каждый такой запрос (и загрузка списка пользователей) проверяет остальных:
+ *    кто не отметился за 5 минут + запас, тот переводится в офлайн.
+ */
 
-export const isOnline = (userId) => lastSeen.has(userId);
-export const presenceLastSeen = (userId) => lastSeen.get(userId) ?? null;
+const cutoff = () => Date.now() - (config.presenceIntervalMs + config.presenceGraceMs);
 
-/** Клиент сообщил «я в сети» — при входе и затем раз в 5 минут. */
-export function markOnline(userId) {
+export const isFresh = (row) => !!row.online && (row.last_seen ?? 0) >= cutoff();
+
+export async function markOnline(userId) {
   const now = Date.now();
-  const wasOnline = lastSeen.has(userId);
-  lastSeen.set(userId, now);
-  db.prepare('UPDATE users SET last_seen = ? WHERE id = ?').run(now, userId);
-  if (!wasOnline) emitEphemeral('presence.changed', { userId, online: true, lastSeen: now });
+  const prev = await one('SELECT online, last_seen FROM users WHERE id = ?', userId);
+  await q('UPDATE users SET online = TRUE, last_seen = ? WHERE id = ?', now, userId);
+  if (!prev || !isFresh(prev)) await emitEphemeral('presence.changed', { userId, online: true, lastSeen: now });
 }
 
-export function markOffline(userId) {
-  if (!lastSeen.has(userId)) return;
-  const seen = lastSeen.get(userId);
-  lastSeen.delete(userId);
-  db.prepare('UPDATE users SET last_seen = ? WHERE id = ?').run(seen, userId);
-  emitEphemeral('presence.changed', { userId, online: false, lastSeen: seen });
+export async function markOffline(userId) {
+  const row = await one('UPDATE users SET online = FALSE WHERE id = ? AND online RETURNING last_seen', userId);
+  if (row) await emitEphemeral('presence.changed', { userId, online: false, lastSeen: row.last_seen });
 }
 
-/** Раз в 5 минут: кто не отметился за интервал (+ запас), тот офлайн. */
-export function startPresenceSweep() {
-  setInterval(() => {
-    const cutoff = Date.now() - (config.presenceIntervalMs + config.presenceGraceMs);
-    for (const [userId, seen] of lastSeen) if (seen < cutoff) markOffline(userId);
-  }, config.presenceIntervalMs).unref();
+/** Проверка онлайна: снимает статус с тех, кто не отметился вовремя. */
+export async function sweepPresence() {
+  const stale = await q('UPDATE users SET online = FALSE WHERE online AND last_seen < ? RETURNING id, last_seen', cutoff());
+  for (const r of stale) await emitEphemeral('presence.changed', { userId: r.id, online: false, lastSeen: r.last_seen });
 }

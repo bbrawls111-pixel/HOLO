@@ -6,7 +6,7 @@ import styles from './Login.module.css';
 
 export function Login() {
   const savedUrl = useStore((s) => s.serverUrl);
-  const [serverUrl, setServerUrl] = useState(savedUrl || 'http://localhost:4000');
+  const [serverUrl, setServerUrl] = useState(savedUrl || 'https://holo-phi-pied.vercel.app');
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);

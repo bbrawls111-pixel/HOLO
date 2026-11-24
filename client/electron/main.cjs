@@ -84,7 +84,10 @@ const send = (channel, payload) => win && !win.isDestroyed() && win.webContents.
 let presenceTimer = null;
 
 async function sendOnline() {
-  if (auth.token) await jsonRequest('POST', '/api/presence/online');
+  if (!auth.token) return;
+  // Ответ содержит актуальные статусы обоих участников — это и есть проверка онлайна раз в 5 минут.
+  const r = await jsonRequest('POST', '/api/presence/online');
+  if (r.ok && r.data?.users) send('holo:presence', r.data.users);
 }
 
 function startPresence() {
@@ -247,18 +250,35 @@ function registerIpc() {
     return jsonRequest(method, p, body);
   });
 
-  // Загрузка файла: из локального пути (drag&drop) или из буфера.
+  // Загрузка файла в 3 шага: prepare → байты напрямую в хранилище → commit.
+  // На Vercel байты идут прямо в Vercel Blob по одноразовому токену, минуя функцию.
   ipcMain.handle('holo:upload', async (_e, { localPath, data, remotePath }) => {
     try {
-      const body = localPath ? Readable.toWeb(fs.createReadStream(localPath)) : new Blob([data]);
-      const res = await rawRequest('POST', '/api/files', {
-        body,
-        headers: { 'X-File-Path': encodeURIComponent(remotePath) },
-        timeout: 60 * 60 * 1000,
-      });
-      return await readResult(res);
+      const size = localPath ? (await fs.promises.stat(localPath)).size : data.byteLength;
+      const prep = await jsonRequest('POST', '/api/files/prepare', { path: remotePath, size });
+      if (!prep.ok) return prep;
+      const grant = prep.data;
+
+      if (grant.mode === 'blob') {
+        const { put } = await import('@vercel/blob');
+        await put(grant.key, localPath ? fs.createReadStream(localPath) : Buffer.from(data), {
+          access: 'private',
+          token: grant.clientToken,
+          contentType: 'application/octet-stream',
+          addRandomSuffix: false,
+          multipart: size > 50 * 1024 * 1024,
+        });
+      } else {
+        const res = await rawRequest('POST', `/api/storage/upload?key=${encodeURIComponent(grant.key)}`, {
+          body: localPath ? Readable.toWeb(fs.createReadStream(localPath)) : new Blob([data]),
+          timeout: 60 * 60 * 1000,
+        });
+        const r = await readResult(res);
+        if (!r.ok) return r;
+      }
+      return await jsonRequest('POST', '/api/files/commit', { key: grant.key, path: grant.path });
     } catch (err) {
-      return { ok: false, status: 0, error: networkError(err) };
+      return { ok: false, status: 0, error: err?.message?.startsWith('Vercel Blob') ? err.message : networkError(err) };
     }
   });
 

@@ -1,19 +1,24 @@
 {
   "name": "holo-server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Holo — приватный сервер рабочего пространства (WebSocket + REST)",
+  "description": "Holo — приватный сервер рабочего пространства (Vercel Functions + Neon Postgres + Vercel Blob)",
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning src/index.js",
-    "dev": "node --disable-warning=ExperimentalWarning --watch src/index.js",
-    "create-user": "node --disable-warning=ExperimentalWarning src/cli/create-user.js",
-    "reset-password": "node --disable-warning=ExperimentalWarning src/cli/reset-password.js"
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "create-user": "node src/cli/create-user.js",
+    "reset-password": "node src/cli/reset-password.js"
   },
   "engines": {
-    "node": ">=22.13"
+    "node": ">=22"
   },
   "dependencies": {
-    "ws": "^8.18.0"
+    "@neondatabase/serverless": "^1.2.1",
+    "@vercel/blob": "^2.9.0",
+    "ws": "^8.23.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.6.0"
   }
 }
