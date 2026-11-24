@@ -45,6 +45,9 @@ export interface TreeNode {
   note?: string;
   category?: string;
   color?: string;
+  /** Ручной сдвиг относительно автоматической раскладки (двигает и всю ветку). */
+  dx?: number;
+  dy?: number;
 }
 
 export interface TreeCategory {

@@ -417,9 +417,38 @@ const AI_PARTITION = /^persist:ai-[a-z0-9-]+$/;
 // Скачивания со страниц ИИ: файл сохраняется в «Загрузки/Holo», а окно спрашивает,
 // добавить ли его в общую библиотеку (с названием и описанием).
 const hookedSessions = new WeakSet();
+// ---------------------------------------------------------------- вход через Google
+// Google не пускает во «встроенные браузеры» (Electron/WebView): узнаёт их по User-Agent
+// и заголовкам sec-ch-ua. На страницах входа Google представляемся обычным Firefox.
+const GOOGLE_AUTH_URLS = ['https://accounts.google.com/*', 'https://accounts.youtube.com/*', 'https://myaccount.google.com/*'];
+const GOOGLE_AUTH_RE = /^https:\/\/(accounts\.google\.com|accounts\.youtube\.com|myaccount\.google\.com)\//;
+const FIREFOX_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0';
+
+function hookGoogleLogin(ses) {
+  ses.webRequest.onBeforeSendHeaders({ urls: GOOGLE_AUTH_URLS }, (d, cb) => {
+    const headers = { ...d.requestHeaders, 'User-Agent': FIREFOX_UA };
+    for (const k of Object.keys(headers)) if (/^sec-ch-ua/i.test(k)) delete headers[k];
+    cb({ requestHeaders: headers });
+  });
+}
+
+/** navigator.userAgent на странице входа тоже должен быть «Firefox». */
+function watchGoogleLogin(contents) {
+  const apply = (url, isMainFrame) => {
+    if (!isMainFrame || !hookedSessions.has(contents.session)) return;
+    const want = GOOGLE_AUTH_RE.test(url) ? FIREFOX_UA : app.userAgentFallback;
+    if (contents.getUserAgent() !== want) contents.setUserAgent(want);
+  };
+  contents.on('did-start-navigation', (e, url, _inPlace, isMainFrame) => {
+    apply(e?.url ?? url, e?.isMainFrame ?? isMainFrame);
+  });
+  contents.on('will-redirect', (e, url) => apply(e?.url ?? url, true));
+}
+
 function hookAiDownloads(ses) {
   if (hookedSessions.has(ses)) return;
   hookedSessions.add(ses);
+  hookGoogleLogin(ses);
   ses.on('will-download', (_event, item) => {
     const dir = path.join(app.getPath('downloads'), 'Holo');
     fs.mkdirSync(dir, { recursive: true });
@@ -579,19 +608,53 @@ app.on('web-contents-created', (_e, contents) => {
     hookCapture(ses, params.partition);
   });
 
+  // Страница ИИ или её всплывающее окно (вход через Google/Microsoft и т.п.) — в разделе persist:ai-*.
+  const isAiContents = () => contents.getType() === 'webview' || hookedSessions.has(contents.session);
+
   contents.setWindowOpenHandler(({ url }) => {
-    // Всплывающие окна входа (Google/Microsoft OAuth) внутри ИИ-сессии оставляем в её же разделе.
-    if (contents.getType() === 'webview' && /^https:\/\//.test(url)) return { action: 'allow' };
+    // Окна входа (OAuth) открываем внутри той же ИИ-сессии — тогда вход сохранится.
+    if (isAiContents() && /^https:\/\//.test(url)) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 520,
+          height: 720,
+          backgroundColor: '#ffffff',
+          autoHideMenuBar: true,
+          webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+        },
+      };
+    }
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
 
-  if (contents.getType() === 'window') {
+  watchGoogleLogin(contents);
+
+  // Окно входа Google: сразу перезапускаем загрузку уже с нужным User-Agent.
+  // У окна из window.open JavaScript наследует User-Agent родителя, поэтому подменяем
+  // его через DevTools-протокол — это действует и на navigator.userAgent.
+  contents.on('did-create-window', async (child, { url }) => {
+    if (!isAiContents() || !GOOGLE_AUTH_RE.test(url || '')) return;
+    const wc = child.webContents;
+    try {
+      wc.setUserAgent(FIREFOX_UA);
+      if (!wc.debugger.isAttached()) wc.debugger.attach('1.3');
+      await wc.debugger.sendCommand('Emulation.setUserAgentOverride', { userAgent: FIREFOX_UA, platform: 'Win32' });
+      wc.loadURL(url).catch(() => {});
+    } catch {
+      /* окно уже закрыто */
+    }
+  });
+
+  // Главное окно Holo никуда не уходит со своей страницы (всплывающих окон ИИ это не касается).
+  setImmediate(() => {
+    if (contents !== win?.webContents) return;
     contents.on('will-navigate', (event, url) => {
       if (isDev && url.startsWith('http://127.0.0.1:5173')) return;
       if (!url.startsWith('file://')) event.preventDefault();
     });
-  }
+  });
 });
 
 function createWindow() {

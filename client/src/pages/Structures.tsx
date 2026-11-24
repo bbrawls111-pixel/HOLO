@@ -1,9 +1,9 @@
 import {
-  Background, Controls, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type Node, type NodeProps,
+  Background, Controls, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type Node, type NodeChange, type NodeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
-  ArrowDownFromLine, ArrowRightFromLine, ChevronRight, CornerDownRight, FileInput, Loader2, Network, Plus, Tags, Trash2, X,
+  ArrowDownFromLine, ArrowRightFromLine, ChevronRight, CornerDownRight, FileInput, Loader2, Move, Network, Plus, RotateCcw, Tags, Trash2, X,
 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createBoard, STATUS_TEXT, useBoardEditor } from '../boards';
@@ -92,7 +92,24 @@ function layout(nodes: TreeNode[], dir: 'TB' | 'LR') {
   }
   const out = new Map<string, { x: number; y: number }>();
   for (const [id, p] of pos) out.set(id, dir === 'TB' ? { x: p.x * 185, y: p.y * 135 } : { x: p.y * 250, y: p.x * 92 });
+  // Ручные сдвиги: сдвиг блока применяется ко всей его ветке.
+  const shift = (n: TreeNode, ox: number, oy: number) => {
+    const sx = ox + (n.dx ?? 0);
+    const sy = oy + (n.dy ?? 0);
+    const p = out.get(n.id);
+    if (p) out.set(n.id, { x: p.x + sx, y: p.y + sy });
+    for (const k of children.get(n.id) ?? []) shift(k, sx, sy);
+  };
+  for (const r of children.get(null) ?? []) shift(r, 0, 0);
   return { pos: out, children };
+}
+
+/** Все потомки блока (вместе с ним). */
+function subtree(id: string, children: Map<string | null, TreeNode[]>) {
+  const out = new Set<string>([id]);
+  const walk = (x: string) => (children.get(x) ?? []).forEach((k) => (out.add(k.id), walk(k.id)));
+  walk(id);
+  return out;
 }
 
 interface NodeData extends Record<string, unknown> {
@@ -102,14 +119,16 @@ interface NodeData extends Record<string, unknown> {
   count: number;
   dir: 'TB' | 'LR';
   dimmed: boolean;
+  moving: boolean;
 }
 
 const HoloNode = memo(function HoloNode({ data, selected }: NodeProps<Node<NodeData>>) {
-  const { node, category, root, count, dir, dimmed } = data;
+  const { node, category, root, count, dir, dimmed, moving } = data;
   const color = category?.color || node.color || (root ? '#8b6dff' : '');
   return (
     <div
-      className={cx(styles.node, selected && styles.nodeSelected, root && styles.nodeRoot, dimmed && styles.nodeDim)}
+      className={cx(styles.node, selected && styles.nodeSelected, root && styles.nodeRoot, dimmed && styles.nodeDim, moving && styles.nodeMoving)}
+      title={moving ? 'Перетащите блок. Двойной клик — закрепить' : 'Двойной клик — переместить блок'}
       style={color ? ({ '--c': color } as CSSProperties) : undefined}
     >
       {!root && <Handle type="target" position={dir === 'TB' ? Position.Top : Position.Left} />}
@@ -179,25 +198,62 @@ function TreeEditor({ board }: { board: Board<TreeData> }) {
 
   const { pos, children } = useMemo(() => layout(nodes, dir), [nodes, dir]);
 
+  // Перемещение: двойной клик по блоку включает режим, затем блок (с веткой) тащится мышью.
+  const [moveId, setMoveId] = useState<string | null>(null);
+  const [drag, setDrag] = useState<{ ids: Set<string>; dx: number; dy: number } | null>(null);
+  const dragRef = useRef<{ ids: Set<string>; dx: number; dy: number } | null>(null);
+  const moving = useMemo(() => (moveId ? subtree(moveId, children) : new Set<string>()), [moveId, children]);
+
   const rfNodes: Node<NodeData>[] = useMemo(
     () =>
-      nodes.map((n) => ({
-        id: n.id,
-        type: 'holo',
-        position: pos.get(n.id) ?? { x: 0, y: 0 },
-        selected: n.id === selected,
-        draggable: false,
-        data: {
-          node: n,
-          category: n.category ? catById.get(n.category) : undefined,
-          root: !n.parentId,
-          count: children.get(n.id)?.length ?? 0,
-          dir,
-          dimmed: !!filter && n.category !== filter,
-        },
-      })),
-    [nodes, pos, children, selected, dir, catById, filter],
+      nodes.map((n) => {
+        const p = pos.get(n.id) ?? { x: 0, y: 0 };
+        const shifted = drag?.ids.has(n.id) ? { x: p.x + drag.dx, y: p.y + drag.dy } : p;
+        return {
+          id: n.id,
+          type: 'holo',
+          position: shifted,
+          selected: n.id === selected,
+          draggable: n.id === moveId,
+          data: {
+            node: n,
+            category: n.category ? catById.get(n.category) : undefined,
+            root: !n.parentId,
+            count: children.get(n.id)?.length ?? 0,
+            dir,
+            dimmed: !!filter && n.category !== filter,
+            moving: moving.has(n.id),
+          },
+        };
+      }),
+    [nodes, pos, children, selected, dir, catById, filter, moveId, moving, drag],
   );
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange<Node<NodeData>>[]) => {
+      for (const c of changes) {
+        if (c.type !== 'position' || c.id !== moveId) continue;
+        const base = pos.get(c.id);
+        if (!base) continue;
+        if (c.position) {
+          dragRef.current = { ids: moving, dx: c.position.x - base.x, dy: c.position.y - base.y };
+          setDrag(dragRef.current);
+        }
+        if (c.dragging === false) {
+          const d = dragRef.current;
+          dragRef.current = null;
+          setDrag(null);
+          if (d && (d.dx || d.dy)) {
+            setNodes(nodes.map((n) => (n.id === c.id ? { ...n, dx: Math.round((n.dx ?? 0) + d.dx), dy: Math.round((n.dy ?? 0) + d.dy) } : n)));
+          }
+        }
+      }
+    },
+    [moveId, pos, moving, nodes, setNodes],
+  );
+
+  const hasManual = nodes.some((n) => n.dx || n.dy);
+  const resetLayout = () => setNodes(nodes.map(({ dx: _dx, dy: _dy, ...n }) => n));
   const rfEdges: Edge[] = useMemo(
     () =>
       nodes
@@ -216,10 +272,14 @@ function TreeEditor({ board }: { board: Board<TreeData> }) {
     [nodes, pos, selected, catById, filter],
   );
 
+  // Подгонка вида — только при смене числа блоков или направления (объект flow нестабилен,
+  // поэтому держим его в ref, иначе вид «уезжает» при каждой перерисовке и во время перетаскивания).
+  const flowRef = useRef(flow);
+  flowRef.current = flow;
   useEffect(() => {
-    const t = setTimeout(() => flow.fitView({ ...FIT, duration: 400 }), 80);
+    const t = setTimeout(() => flowRef.current.fitView({ ...FIT, duration: 400 }), 80);
     return () => clearTimeout(t);
-  }, [nodes.length, dir, flow]);
+  }, [nodes.length, dir]);
 
   // Однократный ремонт текста, испорченного неверной кодировкой (версия от 24.11).
   useEffect(() => {
@@ -331,6 +391,11 @@ function TreeEditor({ board }: { board: Board<TreeData> }) {
         <button className="btn sm" onClick={() => setImporting(true)}>
           <FileInput size={15} /> Из текста
         </button>
+        {hasManual && (
+          <button className="btn sm icon ghost" onClick={resetLayout} title="Сбросить расположение: вернуть автоматическую раскладку блоков">
+            <RotateCcw size={15} />
+          </button>
+        )}
         <div className={styles.spacer} />
         <span className={cx(styles.status, styles[status])}>{STATUS_TEXT[status]}</span>
         <span className={styles.edited}>
@@ -360,13 +425,23 @@ function TreeEditor({ board }: { board: Board<TreeData> }) {
             edges={rfEdges}
             nodeTypes={nodeTypes}
             colorMode="dark"
-            fitView
-            fitViewOptions={FIT}
             minZoom={0.15}
             nodesConnectable={false}
             proOptions={{ hideAttribution: true }}
-            onNodeClick={(_, n) => setSelected(n.id)}
-            onPaneClick={() => setSelected(null)}
+            onNodesChange={onNodesChange}
+            zoomOnDoubleClick={false}
+            onNodeClick={(_, n) => {
+              setSelected(n.id);
+              if (moveId && n.id !== moveId) setMoveId(null);
+            }}
+            onNodeDoubleClick={(_, n) => {
+              setSelected(n.id);
+              setMoveId((m) => (m === n.id ? null : n.id));
+            }}
+            onPaneClick={() => {
+              setSelected(null);
+              setMoveId(null);
+            }}
           >
             <Background gap={22} size={1.2} color="#23233a" />
             <Controls showInteractive={false} />
@@ -377,6 +452,11 @@ function TreeEditor({ board }: { board: Board<TreeData> }) {
               maskColor="rgba(7,7,12,0.7)"
             />
           </ReactFlow>
+          {moveId && (
+            <div className={styles.moveHint}>
+              <Move size={14} /> Перетащите «{nodes.find((n) => n.id === moveId)?.label}» — ветка двинется вместе с ним. Двойной клик — готово.
+            </div>
+          )}
           {!nodes.length && (
             <div className={styles.emptyCanvas}>
               <button className="btn primary" onClick={() => addChild(null)}>
@@ -497,6 +577,9 @@ function TreeEditor({ board }: { board: Board<TreeData> }) {
                 </div>
                 <div>
                   <kbd>Del</kbd> удалить ветку
+                </div>
+                <div>
+                  <kbd>2× клик</kbd> переместить блок
                 </div>
                 <div>
                   <kbd>F2</kbd> переименовать · <kbd>Esc</kbd> снять выбор
