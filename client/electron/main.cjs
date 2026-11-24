@@ -17,10 +17,15 @@ const auth = { serverUrl: '', token: '' };
 // ---------------------------------------------------------------- хранение сессии
 const authFile = () => path.join(app.getPath('userData'), 'holo-auth.json');
 
+const DEFAULT_SERVER = 'https://holo-phi-pied.vercel.app';
+const OLD_DEFAULTS = ['http://localhost:4000', 'http://127.0.0.1:4000'];
+
 function loadAuth() {
   try {
     const raw = JSON.parse(fs.readFileSync(authFile(), 'utf8'));
     auth.serverUrl = raw.serverUrl || '';
+    // Прежний адрес по умолчанию (локальный сервер) без входа — переводим на Vercel.
+    if (!raw.token && OLD_DEFAULTS.includes(auth.serverUrl)) auth.serverUrl = DEFAULT_SERVER;
     if (raw.token) {
       auth.token = raw.enc ? safeStorage.decryptString(Buffer.from(raw.token, 'base64')) : raw.token;
     }
@@ -92,7 +97,9 @@ async function jsonRequest(method, p, body, opts = {}) {
 }
 
 const networkError = (err) =>
-  err?.name === 'TimeoutError' ? 'Сервер не отвечает' : `Нет связи с сервером (${err?.cause?.code || err?.message || 'ошибка'})`;
+  err?.name === 'TimeoutError'
+    ? `Сервер ${auth.serverUrl} не отвечает`
+    : `Нет связи с сервером ${auth.serverUrl} (${err?.cause?.code || err?.message || 'ошибка'})`;
 
 const send = (channel, payload) => win && !win.isDestroyed() && win.webContents.send(channel, payload);
 
