@@ -196,6 +196,11 @@ async function migrate() {
 
 /** Готовность БД: подключение + миграция, один раз на экземпляр. */
 export function ready() {
+  if (config.onVercel && !config.databaseUrl) {
+    const err = new Error('База данных не подключена: Vercel → Storage → Neon → Connect to project');
+    err.status = 503;
+    return Promise.reject(err);
+  }
   if (!readyPromise) {
     readyPromise = (async () => {
       driver = config.databaseUrl ? await createNeonDriver() : await createLocalDriver();

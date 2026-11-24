@@ -35,10 +35,10 @@ const server = http.createServer(async (req, res) => {
     await counted;
     if (!res.headersSent) sendJson(res, 200, result ?? { ok: true });
   } catch (err) {
-    if (!(err instanceof HttpError)) console.error(`[${req.method} ${url.pathname}]`, err);
+    const known = err instanceof HttpError || err.status === 503;
+    if (!known) console.error(`[${req.method} ${url.pathname}]`, err);
     if (res.headersSent) return res.destroy();
-    const status = err instanceof HttpError ? err.status : 500;
-    sendJson(res, status, { error: err instanceof HttpError ? err.message : 'Внутренняя ошибка сервера' });
+    sendJson(res, known ? err.status : 500, { error: known ? err.message : 'Внутренняя ошибка сервера' });
   }
 });
 
