@@ -164,6 +164,8 @@ export interface Captured3D {
   at: number;
 }
 
+export type MonoAiResult<T> = ({ ok: true } & T) | { ok: false; code: string; error: string };
+
 export interface HoloBridge {
   getSession(): Promise<{ serverUrl: string; user: Me | null; error?: string | null; offline?: boolean }>;
   login(serverUrl: string, login: string, password: string): Promise<Result<Me>>;
@@ -191,6 +193,13 @@ export interface HoloBridge {
   capturedFetch(partition: string, id: string): Promise<{ ok: boolean; name?: string; data?: Uint8Array; error?: string }>;
   openLoginWindow(partition: string, url: string, title?: string): Promise<{ ok: boolean }>;
   appVersion(): Promise<string>;
+  monoAi: {
+    status(): Promise<MonoAiResult<{ connected: boolean }>>;
+    connect(): Promise<MonoAiResult<{ connected: boolean; pending?: boolean }>>;
+    disconnect(): Promise<MonoAiResult<{ connected: boolean }>>;
+    ask(id: string, prompt: string): Promise<MonoAiResult<{ text: string }>>;
+    cancel(id: string): Promise<MonoAiResult<unknown>>;
+  };
   screenSources(): Promise<{ id: string; name: string; screen: boolean; thumbnail: string; icon: string | null }[]>;
   setScreenSource(id: string): Promise<void>;
   saveFiles(folder: string, files: { name: string; data: Uint8Array }[]): Promise<{ ok: boolean; path?: string; dir?: string; files?: number; error?: string }>;

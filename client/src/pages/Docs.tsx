@@ -1,7 +1,9 @@
 import { FileText, Lock, Share2, Trash2, Users } from 'lucide-react';
 import { api } from '../api';
 import { createBoard, deleteBoard, STATUS_TEXT, useBoardEditor } from '../boards';
+import { useRef } from 'react';
 import { BoardList } from '../components/BoardList';
+import { MonoAiButton } from '../components/MonoAi';
 import { confirmAction, toast, upsertBoard, useStore } from '../store';
 import type { Board, DocData } from '../types';
 import { cx, formatDateTime } from '../util';
@@ -55,6 +57,7 @@ export function Docs() {
 function DocEditor({ board }: { board: Board<DocData> }) {
   const users = useStore((s) => s.users);
   const { draft, update, status, saveNow } = useBoardEditor<DocData>(board);
+  const textRef = useRef<HTMLTextAreaElement>(null);
   if (!draft) return null;
   const words = draft.data.text.trim() ? draft.data.text.trim().split(/\s+/).length : 0;
 
@@ -101,6 +104,15 @@ function DocEditor({ board }: { board: Board<DocData> }) {
         <button className="btn sm icon ghost danger" onClick={remove} title="Удалить">
           <Trash2 size={16} />
         </button>
+        <MonoAiButton
+          title={draft.title}
+          text={draft.data.text}
+          textarea={textRef}
+          onInsert={(at, piece) => {
+            const t = draft.data.text;
+            update({ data: { text: t.slice(0, at) + piece + t.slice(at) } });
+          }}
+        />
       </div>
       <div className={styles.docBody}>
         <input
@@ -114,6 +126,7 @@ function DocEditor({ board }: { board: Board<DocData> }) {
           {users[board.updatedBy ?? 0] ? ` · ${users[board.updatedBy ?? 0].nickname}` : ''} · слов: {words}
         </div>
         <textarea
+          ref={textRef}
           className={styles.docText}
           value={draft.data.text}
           placeholder="Начните писать…"

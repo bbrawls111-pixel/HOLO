@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const WebSocket = require('ws');
+const { registerMonoAi } = require('./mono-ai.cjs');
 
 const isDev = process.argv.includes('--dev');
 const PRESENCE_INTERVAL_MS = 5 * 60 * 1000; // запрос «я онлайн» раз в 5 минут
@@ -919,6 +920,15 @@ app.whenReady().then(() => {
   registerCaptureIpc();
   registerScreenShare();
   registerLoginWindow();
+  registerMonoAi({
+    app,
+    ipcMain,
+    getWindow: () => win,
+    send,
+    prepareSession: maskChromeHeaders,
+    trackContents: trackLoginContents,
+    preload: LOGIN_PRELOAD,
+  });
   ipcMain.handle('holo:appVersion', () => app.getVersion());
   createWindow();
 

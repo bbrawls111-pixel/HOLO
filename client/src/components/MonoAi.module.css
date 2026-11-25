@@ -1,0 +1,304 @@
+.wrap {
+  position: relative;
+}
+
+.star {
+  color: var(--accent-2);
+}
+.starOn {
+  background: var(--accent-soft) !important;
+  color: var(--accent-2);
+  box-shadow: 0 0 0 1px var(--accent-glow) inset;
+}
+
+/* ---------- меню ---------- */
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 40;
+  width: 270px;
+  padding: 6px;
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  border: 1px solid var(--border-2);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  animation: pop 0.14s ease;
+}
+.menuHead {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--accent-2);
+}
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.menuItem svg {
+  flex: none;
+  color: var(--text-2);
+}
+.menuItem span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.menuItem b {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.menuItem small {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.menuItem:hover,
+.menuItemOn {
+  background: var(--panel-3);
+}
+.menuItem:hover svg,
+.menuItemOn svg {
+  color: var(--accent-2);
+}
+.menuFoot {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 4px;
+  padding: 9px 10px 5px;
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.dotOn,
+.dotOff {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+}
+.dotOff {
+  background: var(--text-3);
+}
+.link {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.link:hover {
+  color: var(--red);
+}
+
+/* ---------- окошко режима ---------- */
+.panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 39;
+  width: min(440px, calc(100vw - 48px));
+  max-height: min(560px, calc(100vh - 160px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  border: 1px solid var(--border-2);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  animation: pop 0.16s ease;
+}
+.panelHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent-2);
+}
+.panelHead b {
+  color: var(--text);
+  font-size: 14px;
+}
+.panelSub {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.grow {
+  flex: 1;
+}
+
+.connect {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px 6px;
+  text-align: center;
+  color: var(--accent-2);
+}
+.connect p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.pick {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-3);
+  border-left: 3px solid var(--accent);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.pickWait {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+  border-left-color: var(--amber);
+  animation: pulse 1.8s ease-in-out infinite;
+}
+.pickWait svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--amber);
+}
+.pickLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-2);
+}
+.pickText {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 84px;
+  overflow: hidden;
+  color: var(--text);
+}
+
+.ask {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.field {
+  flex: 1;
+  min-height: 36px;
+  max-height: 120px;
+  padding: 8px 10px;
+  resize: vertical;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-2);
+  background: var(--bg-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  outline: 0;
+}
+.field:focus {
+  border-color: var(--accent);
+}
+.ask :global(.btn) {
+  flex: none;
+}
+
+.error {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(248, 113, 113, 0.1);
+  color: var(--red);
+  font-size: 12.5px;
+}
+
+.answer {
+  min-height: 44px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  font-size: 13.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  color: var(--text);
+}
+.thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-3);
+}
+.thinking i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: blink 1.2s infinite;
+}
+.thinking i:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.thinking i:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.65;
+  }
+}
+@keyframes blink {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

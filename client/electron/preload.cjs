@@ -23,6 +23,13 @@ contextBridge.exposeInMainWorld('holo', {
   saveFiles: (folder, files) => ipcRenderer.invoke('holo:saveFiles', { folder, files }),
   openLoginWindow: (partition, url, title) => ipcRenderer.invoke('holo:openLoginWindow', { partition, url, title }),
   appVersion: () => ipcRenderer.invoke('holo:appVersion'),
+  monoAi: {
+    status: () => ipcRenderer.invoke('holo:monoAi:status'),
+    connect: () => ipcRenderer.invoke('holo:monoAi:connect'),
+    disconnect: () => ipcRenderer.invoke('holo:monoAi:disconnect'),
+    ask: (id, prompt) => ipcRenderer.invoke('holo:monoAi:ask', { id, prompt }),
+    cancel: (id) => ipcRenderer.invoke('holo:monoAi:cancel', { id }),
+  },
   screenSources: () => ipcRenderer.invoke('holo:screenSources'),
   setScreenSource: (id) => ipcRenderer.invoke('holo:setScreenSource', { id }),
   pathForFile: (file) => {
@@ -33,7 +40,7 @@ contextBridge.exposeInMainWorld('holo', {
     }
   },
   on: (channel, handler) => {
-    const allowed = ['holo:event', 'holo:connection', 'holo:resync', 'holo:loggedOut', 'holo:presence', 'holo:downloaded', 'holo:captured', 'holo:loginWindowClosed', 'holo:loginRedirected'];
+    const allowed = ['holo:event', 'holo:connection', 'holo:resync', 'holo:loggedOut', 'holo:presence', 'holo:downloaded', 'holo:captured', 'holo:loginWindowClosed', 'holo:loginRedirected', 'holo:monoAi:progress'];
     if (!allowed.includes(channel)) return () => {};
     const listener = (_e, payload) => handler(payload);
     ipcRenderer.on(channel, listener);
