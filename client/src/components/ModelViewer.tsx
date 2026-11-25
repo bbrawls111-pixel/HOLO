@@ -52,11 +52,13 @@ export function ModelViewer({ file }: { file: HoloFile }) {
     try {
       const m3d = await import('../three3d');
       const target = m3d.OPT_LEVELS.find((o) => o.id === level)!.target;
-      const { object, before, after } = await m3d.optimizeModel(original.current, target);
+      const { object, before, after, limited } = await m3d.optimizeModel(original.current, target);
       swapRef.current(object);
       setOpt(level);
       setStats(m3d.modelStats(object));
       if (level !== 'off' && after >= before) toast(`Модель уже меньше бюджета — ${before.toLocaleString('ru-RU')} треуг.`, 'info');
+      else if (limited)
+        toast(`Остановились на ${after.toLocaleString('ru-RU')} треуг.: дальше форма модели начнёт портиться`, 'info');
     } catch (e) {
       toast((e as Error).message);
     } finally {

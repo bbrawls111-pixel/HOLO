@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('holo', {
   request: (method, path, body) => ipcRenderer.invoke('holo:request', { method, path, body }),
   upload: (opts) => ipcRenderer.invoke('holo:upload', opts),
   uploadAvatar: (data, mime) => ipcRenderer.invoke('holo:uploadAvatar', { data, mime }),
+  uploadThumb: (fileId, version, data, mime) => ipcRenderer.invoke('holo:uploadThumb', { fileId, version, data, mime }),
   fetchBinary: (path) => ipcRenderer.invoke('holo:fetchBinary', { path }),
   download: (fileId, name, version) => ipcRenderer.invoke('holo:download', { fileId, name, version }),
   openExternal: (url) => ipcRenderer.invoke('holo:openExternal', { url }),

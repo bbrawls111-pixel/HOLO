@@ -373,7 +373,9 @@ export async function exportFbx(root: THREE.Object3D, baseName: string, opts: Fb
     for (const g of geo.groups) {
       const from = Math.floor(g.start / 3);
       const to = Math.min(triCount, Math.floor((g.start + g.count) / 3));
-      for (let t = from; t < to; t++) perTri[t] = g.materialIndex ?? 0;
+      // У части геометрий (цилиндр, крышки) групп больше, чем материалов — такие индексы
+      // ломают FBX в других программах, поэтому прижимаем их к последнему материалу.
+      for (let t = from; t < to; t++) perTri[t] = Math.min(g.materialIndex ?? 0, mats.length - 1);
     }
     const allSame = perTri.every((x) => x === perTri[0]);
     layers.push(

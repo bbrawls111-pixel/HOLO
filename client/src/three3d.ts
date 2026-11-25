@@ -266,16 +266,33 @@ function compactGeometry(geo: THREE.BufferGeometry, index: Uint32Array) {
  * швы UV/нормалей сохраняются (meshoptimizer), вершины не двигаются — текстуры, скиннинг и
  * анимации остаются рабочими. Исходная модель не меняется — возвращается копия.
  */
-export async function optimizeModel(root: THREE.Object3D, target: number): Promise<{ object: THREE.Object3D; before: number; after: number }> {
+export async function optimizeModel(
+  root: THREE.Object3D,
+  target: number,
+): Promise<{ object: THREE.Object3D; before: number; after: number; limited: boolean }> {
   const before = modelStats(root).triangles;
-  if (!Number.isFinite(target) || before <= target) return { object: root, before, after: before };
+  if (!Number.isFinite(target) || before <= target) return { object: root, before, after: before, limited: false };
+  // Сначала аккуратно (форма уходит не больше чем на 1% размера модели); если до бюджета не дошли — 2%, затем 3%.
+  // Дальше не идём: тонкие детали (клинки, пальцы, края) начинают рваться — лучше честно остановиться.
+  for (const maxError of [0.01, 0.02, 0.03]) {
+    const res = await simplifyOnce(root, target, before, maxError);
+    if (res.after <= target * 1.1 || maxError === 0.03) return { ...res, before, limited: res.after > target * 1.1 };
+  }
+  throw new Error('unreachable');
+}
+
+async function simplifyOnce(root: THREE.Object3D, target: number, before: number, maxError: number) {
   const [{ MeshoptSimplifier }, { mergeVertices }, SkeletonUtils] = await Promise.all([
     import('meshoptimizer'),
     import('three/examples/jsm/utils/BufferGeometryUtils.js'),
     import('three/examples/jsm/utils/SkeletonUtils.js'),
   ]);
   await MeshoptSimplifier.ready;
+  MeshoptSimplifier.useExperimentalFeatures = true;
   const ratio = target / before;
+  // Ошибка задаётся относительно размера каждой сетки; приводим к размеру всей модели,
+  // чтобы маленькие детали (гарда, рукоять) не «съедались» сильнее крупных.
+  const modelSize = new THREE.Box3().setFromObject(root).getSize(new THREE.Vector3()).length() || 1;
   const object = SkeletonUtils.clone(root);
   object.userData = { ...root.userData };
   let after = 0;
@@ -295,6 +312,27 @@ export async function optimizeModel(root: THREE.Object3D, target: number): Promi
       positions[i * 3 + 2] = pos.getZ(i);
     }
     const index = Uint32Array.from(geo.index!.array as ArrayLike<number>);
+    // Нормали и UV тоже учитываются: так не «ломается» освещение и не плывут текстуры.
+    const nor = geo.getAttribute('normal');
+    const uv = geo.getAttribute('uv');
+    const stride = (nor ? 3 : 0) + (uv ? 2 : 0);
+    const weights = [...(nor ? [0.5, 0.5, 0.5] : []), ...(uv ? [1, 1] : [])];
+    const attrs = new Float32Array(Math.max(1, pos.count * stride));
+    if (stride)
+      for (let i = 0; i < pos.count; i++) {
+        let o = i * stride;
+        if (nor) {
+          attrs[o++] = nor.getX(i);
+          attrs[o++] = nor.getY(i);
+          attrs[o++] = nor.getZ(i);
+        }
+        if (uv) {
+          attrs[o++] = uv.getX(i);
+          attrs[o++] = uv.getY(i);
+        }
+      }
+    const meshSize = new THREE.Box3().setFromBufferAttribute(pos as THREE.BufferAttribute).getSize(new THREE.Vector3()).length() || 1;
+    const error = Math.min(1, (maxError * modelSize) / (meshSize * Math.max(1e-6, mesh.matrixWorld.getMaxScaleOnAxis())));
     const groups = geo.groups.length ? geo.groups : [{ start: 0, count: index.length, materialIndex: 0 }];
     const parts: Uint32Array[] = [];
     const newGroups: { start: number; count: number; materialIndex: number }[] = [];
@@ -302,8 +340,9 @@ export async function optimizeModel(root: THREE.Object3D, target: number): Promi
     for (const g of groups) {
       const slice = index.slice(g.start, Math.min(index.length, g.start + g.count));
       const want = Math.max(3, Math.floor((slice.length / 3) * ratio) * 3);
-      // Ошибка до 5% размера модели: сильнее упрощать — уже заметно портить форму.
-      const [simplified] = MeshoptSimplifier.simplify(slice, positions, 3, want, 0.05);
+      const [simplified] = stride
+        ? MeshoptSimplifier.simplifyWithAttributes(slice, positions, 3, attrs, stride, weights, null, want, error)
+        : MeshoptSimplifier.simplify(slice, positions, 3, want, error);
       parts.push(simplified);
       newGroups.push({ start: offset, count: simplified.length, materialIndex: g.materialIndex ?? 0 });
       offset += simplified.length;
@@ -321,7 +360,8 @@ export async function optimizeModel(root: THREE.Object3D, target: number): Promi
     mesh.geometry = out;
     after += all.length / 3;
   }
-  return { object, before, after: Math.round(after) };
+  void before;
+  return { object, after: Math.round(after) };
 }
 
 export function modelStats(object: THREE.Object3D) {

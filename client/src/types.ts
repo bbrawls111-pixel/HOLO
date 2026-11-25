@@ -27,6 +27,8 @@ export interface HoloFile {
   scope: 'library' | 'chat';
   title: string;
   description: string;
+  /** версия файла, для которой есть превью 3D-модели (null — превью ещё нет) */
+  thumbVersion?: number | null;
 }
 
 export type BoardKind = 'chart' | 'tree' | 'doc';
@@ -179,6 +181,7 @@ export interface HoloBridge {
     fileId?: number;
   }): Promise<Result<{ file: HoloFile }>>;
   uploadAvatar(data: ArrayBuffer, mime: string): Promise<Result<Me>>;
+  uploadThumb(fileId: number, version: number, data: Uint8Array, mime: string): Promise<Result<{ file: HoloFile }>>;
   fetchBinary(path: string): Promise<{ ok: boolean; mime?: string; data?: Uint8Array; error?: string }>;
   download(fileId: number, name: string, version?: number): Promise<Result<unknown> & { path?: string }>;
   openExternal(url: string): Promise<void>;

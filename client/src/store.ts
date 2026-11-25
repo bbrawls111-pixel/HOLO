@@ -354,6 +354,9 @@ export function applyEvent(ev: HoloEvent) {
     case 'file.comment':
       pushActivity(ev);
       break;
+    case 'file.thumb': // готово превью модели — в «Историю» не пишем
+      upsertFile(p.file);
+      break;
     case 'trash.changed':
       break;
     case 'board.created':

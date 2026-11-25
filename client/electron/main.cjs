@@ -377,6 +377,23 @@ function registerIpc() {
     }
   });
 
+  // Превью 3D-модели (картинка рендерится в окне Holo один раз на версию файла).
+  ipcMain.handle('holo:uploadThumb', async (_e, { fileId, version, data, mime }) => {
+    try {
+      const id = Number(fileId);
+      const ver = Number(version);
+      if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(ver) || ver <= 0) return { ok: false, error: 'Неверный файл' };
+      if (!['image/webp', 'image/png', 'image/jpeg'].includes(mime)) return { ok: false, error: 'Неверный тип картинки' };
+      const res = await rawRequest('POST', `/api/files/${id}/thumb?version=${ver}`, {
+        body: new Blob([data]),
+        headers: { 'Content-Type': mime },
+      });
+      return await readResult(res);
+    } catch (err) {
+      return { ok: false, status: 0, error: networkError(err) };
+    }
+  });
+
   ipcMain.handle('holo:fetchBinary', async (_e, { path: p }) => {
     if (!/^\/api\//.test(p)) return { ok: false, error: 'Недопустимый путь' };
     try {

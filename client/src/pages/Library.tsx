@@ -10,6 +10,7 @@ import type { FileComment, FileVersion, HoloEvent, HoloFile } from '../types';
 import { collectDropped, uploadOne, useUploads } from '../upload';
 import { openImageViewer } from '../components/ImageViewer';
 import { ModelViewer } from '../components/ModelViewer';
+import { ensureModelThumb, thumbPath } from '../modelThumbs';
 import { cx, fileKind, formatBytes, formatDateTime, timeAgo, type FileKind } from '../util';
 import styles from './Library.module.css';
 
@@ -184,9 +185,14 @@ export function Library() {
 // ======================================================================= карточка
 function LibraryCard({ file, index, author }: { file: HoloFile; index: number; author?: string }) {
   const kind = fileKind(file);
-  const thumb = useBinaryUrl(kind === 'image' ? fileContentPath(file) : null);
+  const modelThumb = kind === 'model' && file.thumbVersion === file.version;
+  const thumb = useBinaryUrl(kind === 'image' ? fileContentPath(file) : modelThumb ? thumbPath(file) : null);
   const Icon = KIND_ICON[kind];
   const ext = file.name.includes('.') ? file.name.split('.').pop()!.toUpperCase() : '';
+  // Превью модели делается один раз — при первом показе карточки, у того, кто открыл библиотеку.
+  useEffect(() => {
+    if (kind === 'model' && !modelThumb) ensureModelThumb(file);
+  }, [kind, modelThumb, file]);
   return (
     <button
       className={cx(styles.card, 'lift')}
@@ -199,10 +205,16 @@ function LibraryCard({ file, index, author }: { file: HoloFile; index: number; a
         ) : (
           <div className={cx(styles.cardPlaceholder, 'skeleton')} />
         )
+      ) : kind === 'model' && thumb ? (
+        <div className={styles.cardModel}>
+          <img src={thumb} alt="" draggable={false} />
+          {ext && <span>{ext}</span>}
+        </div>
       ) : (
         <div className={styles.cardTile} data-kind={kind}>
           <Icon size={40} strokeWidth={1.2} />
           {ext && <span>{ext}</span>}
+          {kind === 'model' && !modelThumb && <em className={styles.cardHint}>готовим превью…</em>}
         </div>
       )}
       {file.version > 1 && <span className={styles.ver}>v{file.version}</span>}
