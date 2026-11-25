@@ -212,6 +212,16 @@ ALTER TABLE files ADD COLUMN IF NOT EXISTS purged BOOLEAN NOT NULL DEFAULT FALSE
 ALTER TABLE boards ADD COLUMN IF NOT EXISTS deleted_at BIGINT;
 ALTER TABLE boards ADD COLUMN IF NOT EXISTS deleted_by INTEGER;
 
+-- Превью 3D-моделей: картинка рендерится у клиента один раз на версию файла.
+-- Байты — в отдельной таблице, чтобы списки файлов (SELECT * FROM files) не тяжелели.
+ALTER TABLE files ADD COLUMN IF NOT EXISTS thumb_version INTEGER;
+CREATE TABLE IF NOT EXISTS file_thumbs (
+  file_id INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL,
+  mime TEXT NOT NULL,
+  data BYTEA NOT NULL
+);
+
 INSERT INTO channels (id, name, position) VALUES
   ('general', 'Общий', 0), ('dev', 'Разработка', 1), ('art', 'Арт и звук', 2), ('ideas', 'Идеи', 3)
 ON CONFLICT (id) DO NOTHING;

@@ -30,6 +30,8 @@ export function fileDto(row) {
     scope: row.scope ?? 'library',
     title: row.title ?? '',
     description: row.description ?? '',
+    // Превью есть, только если оно сделано для текущей версии файла.
+    thumbVersion: row.thumb_version != null && row.thumb_version === row.version ? row.thumb_version : null,
   };
 }
 

@@ -1,7 +1,9 @@
 import { one, q, tx } from '../db.js';
 import { config } from '../config.js';
-import { HttpError, readJson, requireInt, requireString } from '../http.js';
-import { emit } from '../realtime.js';
+import { HttpError, readBody, readJson, requireInt, requireString } from '../http.js';
+import { emit, emitEphemeral } from '../realtime.js';
+
+const THUMB_TYPES = ['image/webp', 'image/png', 'image/jpeg'];
 import { fileDto } from '../dto.js';
 import { mimeFor, newStorageKey, openRead, storageMode, storedSize, uploadGrant, writeLocal } from '../storage.js';
 
@@ -176,6 +178,40 @@ export default function register(router) {
     const dto = fileDto(await getFile(file.id));
     if (dto.scope === 'library') await emit('file.updated', { file: dto }, user.id);
     return { file: dto };
+  });
+
+  // --- Превью 3D-моделей ---------------------------------------------------
+  // Клиент рендерит модель без сетки на прозрачном фоне и присылает картинку один раз;
+  // дальше её видят оба участника. Новая версия файла — превью делается заново.
+  router.post('/api/files/:id/thumb', async ({ req, params, url }) => {
+    const file = await getFile(requireInt(params.id, 'id'));
+    const mime = String(req.headers['content-type'] || '').split(';')[0].trim();
+    if (!THUMB_TYPES.includes(mime)) throw new HttpError(415, 'Превью: WEBP, PNG или JPG');
+    const version = Number(url.searchParams.get('version')) || file.version;
+    if (version !== file.version) throw new HttpError(409, 'Файл уже обновился — превью устарело');
+    const data = await readBody(req, config.maxThumbBytes);
+    if (!data.length) throw new HttpError(400, 'Пустое превью');
+    await q(
+      `INSERT INTO file_thumbs (file_id, version, mime, data) VALUES (?, ?, ?, ?)
+       ON CONFLICT (file_id) DO UPDATE SET version = EXCLUDED.version, mime = EXCLUDED.mime, data = EXCLUDED.data`,
+      file.id,
+      version,
+      mime,
+      data,
+    );
+    await q('UPDATE files SET thumb_version = ? WHERE id = ?', version, file.id);
+    const dto = fileDto(await getFile(file.id));
+    // Без записи в журнал: превью — не действие пользователя, в «Историю» оно не попадает.
+    if (dto.scope === 'library') await emitEphemeral('file.thumb', { file: dto });
+    return { file: dto };
+  });
+
+  router.get('/api/files/:id/thumb', async ({ params, res }) => {
+    const row = await one('SELECT mime, data FROM file_thumbs WHERE file_id = ?', requireInt(params.id, 'id'));
+    if (!row) throw new HttpError(404, 'Превью ещё нет');
+    const data = Buffer.from(row.data);
+    res.writeHead(200, { 'Content-Type': row.mime, 'Content-Length': data.length, 'Cache-Control': 'private, max-age=31536000' });
+    res.end(data);
   });
 
   router.delete('/api/files/:id', async ({ params, user }) => {

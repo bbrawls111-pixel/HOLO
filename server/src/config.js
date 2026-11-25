@@ -37,5 +37,6 @@ export const config = {
   // Без практического лимита: верхняя граница самого Vercel Blob — 5 ТБ на файл.
   maxUploadBytes: Number(process.env.HOLO_MAX_UPLOAD || 5 * 1024 ** 4),
   maxAvatarBytes: 1024 * 1024,
+  maxThumbBytes: 1024 * 1024,
   maxJsonBytes: 1024 * 1024,
 };
