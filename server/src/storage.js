@@ -72,7 +72,7 @@ export async function removeObject(key) {
     return;
   }
   const { del } = await import('@vercel/blob');
-  await del(key, { token: config.blobToken }).catch(() => {});
+  await del(key, { token: config.blobToken }).catch((e) => console.warn('[storage] не удалось удалить', key, e?.message || e));
 }
 
 /** Локальный режим: приём тела загрузки на диск. */

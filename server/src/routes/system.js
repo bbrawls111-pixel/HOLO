@@ -19,7 +19,13 @@ async function activity(limit, all = false) {
 
 async function stats() {
   const [storage, files, messages, ops] = await Promise.all([
-    one('SELECT COALESCE(SUM(size), 0)::bigint AS bytes FROM (SELECT DISTINCT storage_key, size FROM file_versions) s'),
+    // Только данные живых файлов (и лежащих в корзине): версии файлов, удалённых навсегда, уже стёрты
+    // из хранилища — раньше они всё равно считались, и вес после удаления не уменьшался.
+    one(
+      `SELECT COALESCE(SUM(size), 0)::bigint AS bytes FROM (
+         SELECT DISTINCT v.storage_key, v.size FROM file_versions v JOIN files f ON f.id = v.file_id WHERE NOT f.purged
+       ) s`,
+    ),
     one("SELECT COUNT(*)::int AS n FROM files WHERE NOT deleted AND scope = 'library'"),
     one('SELECT COUNT(*)::int AS n FROM messages'),
     getOpsThisMonth(),
